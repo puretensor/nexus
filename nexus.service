@@ -1,0 +1,16 @@
+[Unit]
+Description=NEXUS Multi-Channel Agentic Service
+After=network.target
+
+[Service]
+Type=simple
+User=puretensorai
+Group=puretensorai
+WorkingDirectory=/home/puretensorai/nexus
+ExecStart=/usr/bin/python3 /home/puretensorai/nexus/nexus.py
+Restart=on-failure
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
