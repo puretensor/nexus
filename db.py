@@ -132,6 +132,25 @@ def init_db():
         )
         log.info("Created observer_state table")
 
+    # Followups table (track emails awaiting responses)
+    fu_cols = [row[1] for row in con.execute("PRAGMA table_info(followups)").fetchall()]
+    if not fu_cols:
+        con.execute(
+            """CREATE TABLE followups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                email_to TEXT NOT NULL,
+                email_subject TEXT,
+                email_message_id TEXT,
+                sent_at TEXT,
+                reminder_days INTEGER DEFAULT 3,
+                last_reminded TEXT,
+                resolved_at TEXT,
+                created_at TEXT
+            )"""
+        )
+        log.info("Created followups table")
+
     # Email seen table (dedup for email digest observer)
     email_cols = [row[1] for row in con.execute("PRAGMA table_info(email_seen)").fetchall()]
     if not email_cols:
@@ -766,6 +785,82 @@ def set_observer_state(observer_name: str, state_json: str) -> None:
            VALUES (?, ?, ?)
            ON CONFLICT(observer_name) DO UPDATE SET last_run = ?, state_json = ?""",
         (observer_name, now, state_json, now, state_json),
+    )
+    con.commit()
+    con.close()
+
+
+# ---------------------------------------------------------------------------
+# Followups (track emails awaiting responses)
+# ---------------------------------------------------------------------------
+
+def create_followup(chat_id: int, email_to: str, email_subject: str,
+                    email_message_id: str, reminder_days: int = 3) -> int:
+    """Create a follow-up tracker for a sent email. Returns followup ID."""
+    now = _now()
+    con = _connect()
+    con.execute(
+        """INSERT INTO followups (chat_id, email_to, email_subject, email_message_id,
+                                  sent_at, reminder_days, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (chat_id, email_to, email_subject, email_message_id, now, reminder_days, now),
+    )
+    fid = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+    con.commit()
+    con.close()
+    return fid
+
+
+def list_active_followups(chat_id: int | None = None) -> list[dict]:
+    """List all unresolved followups. If chat_id is None, returns all."""
+    con = _connect()
+    if chat_id is not None:
+        rows = con.execute(
+            """SELECT id, chat_id, email_to, email_subject, email_message_id,
+                      sent_at, reminder_days, last_reminded, created_at
+               FROM followups WHERE chat_id = ? AND resolved_at IS NULL
+               ORDER BY sent_at ASC""",
+            (chat_id,),
+        ).fetchall()
+    else:
+        rows = con.execute(
+            """SELECT id, chat_id, email_to, email_subject, email_message_id,
+                      sent_at, reminder_days, last_reminded, created_at
+               FROM followups WHERE resolved_at IS NULL
+               ORDER BY sent_at ASC""",
+        ).fetchall()
+    con.close()
+    return [
+        {
+            "id": r[0], "chat_id": r[1], "email_to": r[2],
+            "email_subject": r[3], "email_message_id": r[4],
+            "sent_at": r[5], "reminder_days": r[6],
+            "last_reminded": r[7], "created_at": r[8],
+        }
+        for r in rows
+    ]
+
+
+def resolve_followup(followup_id: int) -> bool:
+    """Mark a followup as resolved. Returns True if updated."""
+    now = _now()
+    con = _connect()
+    cursor = con.execute(
+        "UPDATE followups SET resolved_at = ? WHERE id = ? AND resolved_at IS NULL",
+        (now, followup_id),
+    )
+    con.commit()
+    con.close()
+    return cursor.rowcount > 0
+
+
+def update_followup_reminded(followup_id: int) -> None:
+    """Update last_reminded timestamp for a followup."""
+    now = _now()
+    con = _connect()
+    con.execute(
+        "UPDATE followups SET last_reminded = ? WHERE id = ?",
+        (now, followup_id),
     )
     con.commit()
     con.close()

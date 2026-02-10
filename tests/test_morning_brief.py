@@ -4,6 +4,7 @@ Focus areas:
 - Weather fetching (mock urllib)
 - Prometheus query (mock urllib)
 - Email fetching (mock imaplib)
+- Calendar fetching (mock subprocess)
 - Brief assembly (all sources succeed)
 - Brief assembly with partial failures
 - send_telegram chunking
@@ -343,6 +344,172 @@ class TestFetchEmails:
 
 
 # ---------------------------------------------------------------------------
+# Calendar fetching
+# ---------------------------------------------------------------------------
+
+class TestFetchCalendar:
+
+    @pytest.fixture(autouse=True)
+    def make_observer(self):
+        with patch.dict("os.environ", {
+            "TELEGRAM_BOT_TOKEN": "fake:token",
+            "AUTHORIZED_USER_ID": "12345",
+        }):
+            self.obs = MorningBriefObserver()
+
+    def test_no_script_file(self, tmp_path):
+        """Missing gcalendar.py returns informational message."""
+        self.obs.GCALENDAR_SCRIPT = tmp_path / "nonexistent.py"
+        result = self.obs.fetch_calendar()
+        assert "not configured" in result.lower()
+
+    @patch("observers.morning_brief.subprocess.run")
+    def test_events_found(self, mock_run, tmp_path):
+        """Events from gcalendar.py are parsed and returned."""
+        self.obs.GCALENDAR_SCRIPT = tmp_path / "gcalendar.py"
+        self.obs.GCALENDAR_SCRIPT.write_text("# placeholder")
+        self.obs.CALENDAR_ACCOUNTS = ["personal"]
+
+        # Simulate gcalendar.py today output
+        output = (
+            "\nToday (Tuesday 2026-02-10):\n"
+            "\n"
+            "Time                                          Summary                                            ID\n"
+            "------------------------------------------------------------------------------------------------------------------------\n"
+            "2026-02-10  09:00-10:00                       Sprint planning                                    abc123\n"
+            "2026-02-10  14:00-15:00                       Team sync                                          def456\n"
+            "\n"
+            "  Showing 2 events\n"
+        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=output, stderr="")
+
+        result = self.obs.fetch_calendar()
+        assert "2 event(s) today" in result
+        assert "Sprint planning" in result
+        assert "Team sync" in result
+
+    @patch("observers.morning_brief.subprocess.run")
+    def test_no_events(self, mock_run, tmp_path):
+        """No events returns appropriate message."""
+        self.obs.GCALENDAR_SCRIPT = tmp_path / "gcalendar.py"
+        self.obs.GCALENDAR_SCRIPT.write_text("# placeholder")
+        self.obs.CALENDAR_ACCOUNTS = ["personal"]
+
+        output = (
+            "\nToday (Tuesday 2026-02-10):\n"
+            "  No events found.\n"
+        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=output, stderr="")
+
+        result = self.obs.fetch_calendar()
+        assert "No calendar events today" in result
+
+    @patch("observers.morning_brief.subprocess.run")
+    def test_subprocess_failure(self, mock_run, tmp_path):
+        """Non-zero exit code from gcalendar.py is handled gracefully."""
+        self.obs.GCALENDAR_SCRIPT = tmp_path / "gcalendar.py"
+        self.obs.GCALENDAR_SCRIPT.write_text("# placeholder")
+        self.obs.CALENDAR_ACCOUNTS = ["personal"]
+
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Token expired")
+
+        result = self.obs.fetch_calendar()
+        assert "No calendar events today" in result
+
+    @patch("observers.morning_brief.subprocess.run")
+    def test_subprocess_timeout(self, mock_run, tmp_path):
+        """Timeout from gcalendar.py is handled gracefully."""
+        self.obs.GCALENDAR_SCRIPT = tmp_path / "gcalendar.py"
+        self.obs.GCALENDAR_SCRIPT.write_text("# placeholder")
+        self.obs.CALENDAR_ACCOUNTS = ["personal"]
+
+        mock_run.side_effect = subprocess.TimeoutExpired("cmd", 30)
+
+        result = self.obs.fetch_calendar()
+        # Timeout is caught internally, no events returned
+        assert "No calendar events today" in result
+
+    @patch("observers.morning_brief.subprocess.run")
+    def test_multiple_accounts(self, mock_run, tmp_path):
+        """Events from multiple accounts are aggregated."""
+        self.obs.GCALENDAR_SCRIPT = tmp_path / "gcalendar.py"
+        self.obs.GCALENDAR_SCRIPT.write_text("# placeholder")
+        self.obs.CALENDAR_ACCOUNTS = ["personal", "ops"]
+
+        personal_output = (
+            "\nToday:\n"
+            "Time                                          Summary\n"
+            "---\n"
+            "2026-02-10  09:00-10:00                       Dentist                                            abc\n"
+            "\n  Showing 1 events\n"
+        )
+        ops_output = (
+            "\nToday:\n"
+            "Time                                          Summary\n"
+            "---\n"
+            "2026-02-10  14:00-15:00                       Team call                                          def\n"
+            "\n  Showing 1 events\n"
+        )
+
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout=personal_output, stderr=""),
+            MagicMock(returncode=0, stdout=ops_output, stderr=""),
+        ]
+
+        result = self.obs.fetch_calendar()
+        assert "2 event(s) today" in result
+        assert "[personal]" in result
+        assert "[ops]" in result
+        assert "Dentist" in result
+        assert "Team call" in result
+
+    @patch("observers.morning_brief.subprocess.run")
+    def test_all_day_event_parsed(self, mock_run, tmp_path):
+        """All-day events (date format without time) are also parsed."""
+        self.obs.GCALENDAR_SCRIPT = tmp_path / "gcalendar.py"
+        self.obs.GCALENDAR_SCRIPT.write_text("# placeholder")
+        self.obs.CALENDAR_ACCOUNTS = ["personal"]
+
+        output = (
+            "\nToday:\n"
+            "Time                                          Summary\n"
+            "---\n"
+            "2026-02-10 (all day)                          Company holiday                                    xyz\n"
+            "\n  Showing 1 events\n"
+        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=output, stderr="")
+
+        result = self.obs.fetch_calendar()
+        assert "1 event(s) today" in result
+        assert "Company holiday" in result
+
+    @patch("observers.morning_brief.subprocess.run")
+    def test_partial_account_failure(self, mock_run, tmp_path):
+        """One account fails, another succeeds -- events from working account returned."""
+        self.obs.GCALENDAR_SCRIPT = tmp_path / "gcalendar.py"
+        self.obs.GCALENDAR_SCRIPT.write_text("# placeholder")
+        self.obs.CALENDAR_ACCOUNTS = ["broken", "working"]
+
+        working_output = (
+            "\nToday:\n"
+            "Time                                          Summary\n"
+            "---\n"
+            "2026-02-10  11:00-12:00                       Lunch meeting                                      abc\n"
+            "\n  Showing 1 events\n"
+        )
+
+        mock_run.side_effect = [
+            MagicMock(returncode=1, stdout="", stderr="Auth failed"),
+            MagicMock(returncode=0, stdout=working_output, stderr=""),
+        ]
+
+        result = self.obs.fetch_calendar()
+        assert "1 event(s) today" in result
+        assert "[working]" in result
+        assert "Lunch meeting" in result
+
+
+# ---------------------------------------------------------------------------
 # Brief assembly -- all sources succeed (_gather_data and _build_prompt)
 # ---------------------------------------------------------------------------
 
@@ -356,31 +523,37 @@ class TestBriefAssemblySuccess:
         }):
             self.obs = MorningBriefObserver()
 
+    @patch.object(MorningBriefObserver, "fetch_calendar")
     @patch.object(MorningBriefObserver, "fetch_weather")
     @patch.object(MorningBriefObserver, "fetch_node_health")
     @patch.object(MorningBriefObserver, "fetch_emails")
-    def test_all_sources_succeed(self, mock_emails, mock_nodes, mock_weather):
+    def test_all_sources_succeed(self, mock_emails, mock_nodes, mock_weather, mock_cal):
         """All sources succeed -- sections dict has all keys."""
         mock_emails.return_value = "3 unread emails:\n[personal] ..."
         mock_nodes.return_value = "All monitored nodes are up."
         mock_weather.return_value = "Weather in London: Sunny, 15C"
+        mock_cal.return_value = "2 event(s) today:\n[personal] 2026-02-10  09:00-10:00  Sprint planning"
 
         sections = self.obs._gather_data()
         assert "emails" in sections
         assert "infrastructure" in sections
         assert "weather" in sections
+        assert "calendar" in sections
         assert "3 unread emails" in sections["emails"]
         assert "All monitored nodes are up" in sections["infrastructure"]
         assert "Sunny" in sections["weather"]
+        assert "Sprint planning" in sections["calendar"]
 
+    @patch.object(MorningBriefObserver, "fetch_calendar")
     @patch.object(MorningBriefObserver, "fetch_weather")
     @patch.object(MorningBriefObserver, "fetch_node_health")
     @patch.object(MorningBriefObserver, "fetch_emails")
-    def test_build_prompt_includes_all_sections(self, mock_emails, mock_nodes, mock_weather):
+    def test_build_prompt_includes_all_sections(self, mock_emails, mock_nodes, mock_weather, mock_cal):
         """_build_prompt includes all section data and the final instruction."""
         mock_emails.return_value = "5 unread emails"
         mock_nodes.return_value = "All nodes up"
         mock_weather.return_value = "Sunny, 20C"
+        mock_cal.return_value = "1 event(s) today:\n[ops] 2026-02-10  14:00-15:00  Team sync"
 
         sections = self.obs._gather_data()
         prompt = MorningBriefObserver._build_prompt(sections)
@@ -391,6 +564,8 @@ class TestBriefAssemblySuccess:
         assert "All nodes up" in prompt
         assert "WEATHER" in prompt
         assert "Sunny, 20C" in prompt
+        assert "CALENDAR" in prompt
+        assert "Team sync" in prompt
         assert "morning briefing" in prompt
         assert "Plain text, no markdown" in prompt
 
@@ -409,73 +584,103 @@ class TestBriefAssemblyPartialFailure:
         }):
             self.obs = MorningBriefObserver()
 
+    @patch.object(MorningBriefObserver, "fetch_calendar")
     @patch.object(MorningBriefObserver, "fetch_weather")
     @patch.object(MorningBriefObserver, "fetch_node_health")
     @patch.object(MorningBriefObserver, "fetch_emails")
-    def test_email_fails_others_succeed(self, mock_emails, mock_nodes, mock_weather):
-        """Email source fails -- brief still generated with infra and weather."""
+    def test_email_fails_others_succeed(self, mock_emails, mock_nodes, mock_weather, mock_cal):
+        """Email source fails -- brief still generated with infra, weather, and calendar."""
         mock_emails.side_effect = Exception("IMAP total failure")
         mock_nodes.return_value = "All monitored nodes are up."
         mock_weather.return_value = "Weather in London: Rainy, 8C"
+        mock_cal.return_value = "No calendar events today."
 
         sections = self.obs._gather_data()
         assert "failed" in sections["emails"].lower()
         assert "All monitored nodes are up" in sections["infrastructure"]
         assert "Rainy" in sections["weather"]
+        assert "No calendar events" in sections["calendar"]
 
+    @patch.object(MorningBriefObserver, "fetch_calendar")
     @patch.object(MorningBriefObserver, "fetch_weather")
     @patch.object(MorningBriefObserver, "fetch_node_health")
     @patch.object(MorningBriefObserver, "fetch_emails")
-    def test_prometheus_fails_others_succeed(self, mock_emails, mock_nodes, mock_weather):
-        """Prometheus fails -- brief still generated with emails and weather."""
+    def test_prometheus_fails_others_succeed(self, mock_emails, mock_nodes, mock_weather, mock_cal):
+        """Prometheus fails -- brief still generated with emails, weather, and calendar."""
         mock_emails.return_value = "No unread emails."
         mock_nodes.side_effect = Exception("Connection refused")
         mock_weather.return_value = "Weather in London: Cloudy, 10C"
+        mock_cal.return_value = "No calendar events today."
 
         sections = self.obs._gather_data()
         assert "No unread emails" in sections["emails"]
         assert "failed" in sections["infrastructure"].lower()
         assert "Cloudy" in sections["weather"]
 
+    @patch.object(MorningBriefObserver, "fetch_calendar")
     @patch.object(MorningBriefObserver, "fetch_weather")
     @patch.object(MorningBriefObserver, "fetch_node_health")
     @patch.object(MorningBriefObserver, "fetch_emails")
-    def test_weather_fails_others_succeed(self, mock_emails, mock_nodes, mock_weather):
-        """Weather fails -- brief still generated with emails and infra."""
+    def test_weather_fails_others_succeed(self, mock_emails, mock_nodes, mock_weather, mock_cal):
+        """Weather fails -- brief still generated with emails, infra, and calendar."""
         mock_emails.return_value = "2 unread emails:\n..."
         mock_nodes.return_value = "All monitored nodes are up."
         mock_weather.side_effect = Exception("DNS resolution failed")
+        mock_cal.return_value = "No calendar events today."
 
         sections = self.obs._gather_data()
         assert "2 unread emails" in sections["emails"]
         assert "All monitored nodes are up" in sections["infrastructure"]
         assert "failed" in sections["weather"].lower()
 
+    @patch.object(MorningBriefObserver, "fetch_calendar")
     @patch.object(MorningBriefObserver, "fetch_weather")
     @patch.object(MorningBriefObserver, "fetch_node_health")
     @patch.object(MorningBriefObserver, "fetch_emails")
-    def test_all_sources_fail(self, mock_emails, mock_nodes, mock_weather):
+    def test_calendar_fails_others_succeed(self, mock_emails, mock_nodes, mock_weather, mock_cal):
+        """Calendar source fails -- brief still generated with emails, infra, and weather."""
+        mock_emails.return_value = "No unread emails."
+        mock_nodes.return_value = "All monitored nodes are up."
+        mock_weather.return_value = "Weather in London: Sunny, 15C"
+        mock_cal.side_effect = Exception("Auth error")
+
+        sections = self.obs._gather_data()
+        assert "No unread emails" in sections["emails"]
+        assert "All monitored nodes are up" in sections["infrastructure"]
+        assert "Sunny" in sections["weather"]
+        assert "failed" in sections["calendar"].lower()
+
+    @patch.object(MorningBriefObserver, "fetch_calendar")
+    @patch.object(MorningBriefObserver, "fetch_weather")
+    @patch.object(MorningBriefObserver, "fetch_node_health")
+    @patch.object(MorningBriefObserver, "fetch_emails")
+    def test_all_sources_fail(self, mock_emails, mock_nodes, mock_weather, mock_cal):
         """All sources fail -- sections still populated with error messages."""
         mock_emails.side_effect = Exception("Email down")
         mock_nodes.side_effect = Exception("Prometheus down")
         mock_weather.side_effect = Exception("Weather down")
+        mock_cal.side_effect = Exception("Calendar down")
 
         sections = self.obs._gather_data()
         assert "emails" in sections
         assert "infrastructure" in sections
         assert "weather" in sections
+        assert "calendar" in sections
         assert "failed" in sections["emails"].lower()
         assert "failed" in sections["infrastructure"].lower()
         assert "failed" in sections["weather"].lower()
+        assert "failed" in sections["calendar"].lower()
 
+    @patch.object(MorningBriefObserver, "fetch_calendar")
     @patch.object(MorningBriefObserver, "fetch_weather")
     @patch.object(MorningBriefObserver, "fetch_node_health")
     @patch.object(MorningBriefObserver, "fetch_emails")
-    def test_partial_failure_prompt_still_valid(self, mock_emails, mock_nodes, mock_weather):
+    def test_partial_failure_prompt_still_valid(self, mock_emails, mock_nodes, mock_weather, mock_cal):
         """Prompt can be built even when some sources failed."""
         mock_emails.side_effect = Exception("boom")
         mock_nodes.return_value = "1 node(s) DOWN:\n  - mon3:9100 (job: infra)"
         mock_weather.side_effect = Exception("boom")
+        mock_cal.return_value = "1 event(s) today:\n[personal] 2026-02-10  09:00-10:00  Standup"
 
         sections = self.obs._gather_data()
         prompt = MorningBriefObserver._build_prompt(sections)
@@ -484,7 +689,9 @@ class TestBriefAssemblyPartialFailure:
         assert "EMAILS" in prompt
         assert "INFRASTRUCTURE" in prompt
         assert "WEATHER" in prompt
+        assert "CALENDAR" in prompt
         assert "mon3:9100" in prompt
+        assert "Standup" in prompt
         assert "morning briefing" in prompt
 
 

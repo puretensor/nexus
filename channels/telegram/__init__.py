@@ -28,7 +28,7 @@ class TelegramChannel(Channel):
             cmd_schedule, cmd_remind, cmd_cancel,
             cmd_remember, cmd_forget, cmd_memories,
             cmd_check, cmd_restart, cmd_logs, cmd_disk, cmd_top, cmd_deploy,
-            cmd_drafts,
+            cmd_drafts, cmd_calendar, cmd_followups,
             handle_message, handle_voice,
         )
         from channels.telegram.callbacks import handle_callback
@@ -61,6 +61,10 @@ class TelegramChannel(Channel):
 
         # Draft queue commands
         self.app.add_handler(CommandHandler("drafts", cmd_drafts))
+
+        # Calendar and follow-up commands
+        self.app.add_handler(CommandHandler("calendar", cmd_calendar))
+        self.app.add_handler(CommandHandler("followups", cmd_followups))
 
         # Memory commands
         self.app.add_handler(CommandHandler("remember", cmd_remember))

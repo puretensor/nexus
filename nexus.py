@@ -33,6 +33,7 @@ def _build_observer_registry():
         ("observers.daily_snippet", "DailySnippetObserver"),
         ("observers.bretalon_review", "BretalonReviewObserver"),
         ("observers.git_push", "GitPushObserver"),
+        ("observers.followup_reminder", "FollowupReminderObserver"),
     ]
 
     import importlib

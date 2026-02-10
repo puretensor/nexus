@@ -17,6 +17,7 @@ import imaplib
 import json
 import logging
 import os
+import subprocess
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -41,6 +42,8 @@ class MorningBriefObserver(Observer):
     MAX_PER_ACCOUNT = 20
     PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", _PROMETHEUS_URL)
     WEATHER_LOCATION = os.environ.get("WEATHER_LOCATION", "London")
+    GCALENDAR_SCRIPT = Path.home() / ".config" / "puretensor" / "gcalendar.py"
+    CALENDAR_ACCOUNTS = ["personal", "ops"]
 
     # -- Data sources ----------------------------------------------------------
 
@@ -174,6 +177,43 @@ class MorningBriefObserver(Observer):
             f"{today_forecast}"
         )
 
+    def fetch_calendar(self) -> str:
+        """Fetch today's calendar events from Google Calendar.
+
+        Calls gcalendar.py CLI for each configured account.
+        Returns a string summary of today's events.
+        """
+        if not self.GCALENDAR_SCRIPT.exists():
+            return "Calendar not configured."
+
+        all_events = []
+        for account in self.CALENDAR_ACCOUNTS:
+            try:
+                result = subprocess.run(
+                    ["python3", str(self.GCALENDAR_SCRIPT), account, "today"],
+                    capture_output=True, text=True, timeout=30,
+                )
+                if result.returncode == 0:
+                    output = result.stdout.strip()
+                    # Skip header lines, extract event lines
+                    lines = output.split("\n")
+                    for line in lines:
+                        line = line.strip()
+                        # Event lines start with a date (YYYY-MM-DD)
+                        if line and line[:4].isdigit() and "-" in line[:5]:
+                            all_events.append(f"[{account}] {line}")
+                else:
+                    log.warning("Calendar fetch for %s failed: %s", account, result.stderr[:200])
+            except subprocess.TimeoutExpired:
+                log.warning("Calendar fetch for %s timed out", account)
+            except Exception as e:
+                log.warning("Calendar fetch for %s error: %s", account, e)
+
+        if not all_events:
+            return "No calendar events today."
+
+        return f"{len(all_events)} event(s) today:\n" + "\n".join(all_events)
+
     # -- Internal helpers ------------------------------------------------------
 
     @staticmethod
@@ -218,6 +258,13 @@ class MorningBriefObserver(Observer):
             sections["weather"] = f"Weather check failed: {e}"
             log.warning("Weather source failed: %s", e)
 
+        # Calendar
+        try:
+            sections["calendar"] = self.fetch_calendar()
+        except Exception as e:
+            sections["calendar"] = f"Calendar check failed: {e}"
+            log.warning("Calendar source failed: %s", e)
+
         return sections
 
     @staticmethod
@@ -238,9 +285,14 @@ class MorningBriefObserver(Observer):
         parts.append(sections.get("weather", "No weather data available."))
         parts.append("")
 
+        parts.append("== CALENDAR ==")
+        parts.append(sections.get("calendar", "No calendar data available."))
+        parts.append("")
+
         parts.append(
-            "Create a concise morning briefing covering: emails needing attention, "
-            "infrastructure status, and today's weather. Keep it brief and actionable. "
+            "Create a concise morning briefing covering: today's calendar events, "
+            "emails needing attention, infrastructure status, and today's weather. "
+            "Start with calendar items. Keep it brief and actionable. "
             "Plain text, no markdown."
         )
 

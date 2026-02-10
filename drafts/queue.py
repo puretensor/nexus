@@ -16,6 +16,7 @@ from db import (
     get_draft,
     list_drafts,
     update_draft_status,
+    create_followup,
 )
 
 log = logging.getLogger("nexus")
@@ -100,6 +101,18 @@ def send_draft(draft_id: int) -> tuple[bool, str]:
         if result.returncode == 0:
             update_draft_status(draft_id, "sent")
             log.info("Sent draft #%d reply to %s", draft_id, draft["email_from"])
+
+            # Auto-create a follow-up tracker
+            try:
+                create_followup(
+                    chat_id=draft["chat_id"],
+                    email_to=draft["email_from"],
+                    email_subject=draft["email_subject"],
+                    email_message_id=draft["email_message_id"],
+                )
+            except Exception as e:
+                log.warning("Failed to create followup for draft #%d: %s", draft_id, e)
+
             return True, f"Reply sent to {draft['email_from']}"
         else:
             error = result.stderr[:300] or result.stdout[:300]

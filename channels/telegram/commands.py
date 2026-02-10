@@ -64,7 +64,13 @@ from handlers.voice_tts import (
 from scheduler import parse_schedule_args
 from config import TIMEOUT, WHISPER_URL, log
 
+import subprocess
+from pathlib import Path
+
 from drafts.queue import get_pending_drafts, approve_draft, reject_draft
+from db import list_active_followups, resolve_followup
+
+GCALENDAR_SCRIPT = Path.home() / ".config" / "puretensor" / "gcalendar.py"
 
 try:
     from memory import add_memory, remove_memory, list_memories, search_memories, memory_count
@@ -217,8 +223,12 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/forex — Forex rates\n"
         "/trains \\[from] \\[to] — Train departures\n"
         "/nodes — Infrastructure status\n\n"
-        "*Email Drafts*\n"
-        "/drafts — List pending email reply drafts\n\n"
+        "*Email & Follow\\-ups*\n"
+        "/drafts — List pending email reply drafts\n"
+        "/followups — List active follow\\-ups\n"
+        "/followups resolve <n> — Mark resolved\n\n"
+        "*Calendar*\n"
+        "/calendar \\[today|week|upcoming] — Calendar events\n\n"
         "*Quick Actions*\n"
         "/check \\[nodes|sites] — Health check\n"
         "/restart <service> \\[node] — Restart service\n"
@@ -765,6 +775,106 @@ async def cmd_drafts(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
 
         await update.message.reply_text(text, reply_markup=keyboard)
+
+
+# ---------------------------------------------------------------------------
+# Calendar command
+# ---------------------------------------------------------------------------
+
+
+@authorized
+async def cmd_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /calendar [today|week|upcoming] — show calendar events."""
+    args = context.args or []
+    view = args[0].lower() if args else "today"
+
+    if view not in ("today", "week", "upcoming"):
+        view = "today"
+
+    if not GCALENDAR_SCRIPT.exists():
+        await update.message.reply_text("Calendar not configured.")
+        return
+
+    await update.message.reply_text(f"Fetching calendar ({view})...")
+
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: subprocess.run(
+                ["python3", str(GCALENDAR_SCRIPT), "all", view],
+                capture_output=True, text=True, timeout=30,
+            ),
+        )
+
+        if result.returncode == 0:
+            output = result.stdout.strip()
+            if not output:
+                output = "No events found."
+            # Truncate if needed
+            if len(output) > 4000:
+                output = output[:3997] + "..."
+            await update.message.reply_text(output)
+        else:
+            error = result.stderr[:300] or "Unknown error"
+            await update.message.reply_text(f"Calendar error: {error}")
+    except subprocess.TimeoutExpired:
+        await update.message.reply_text("Calendar fetch timed out.")
+    except Exception as e:
+        await update.message.reply_text(f"Calendar error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Followup commands
+# ---------------------------------------------------------------------------
+
+
+@authorized
+async def cmd_followups(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /followups — list active follow-ups or resolve one."""
+    chat_id = update.effective_chat.id
+    args = context.args or []
+
+    # /followups resolve <n>
+    if len(args) >= 2 and args[0] == "resolve":
+        try:
+            n = int(args[1])
+        except ValueError:
+            await update.message.reply_text("Usage: /followups resolve <number>")
+            return
+
+        followups = list_active_followups(chat_id)
+        if n < 1 or n > len(followups):
+            await update.message.reply_text(
+                f"Invalid number. Use /followups to see list (1-{len(followups)})."
+            )
+            return
+
+        fu = followups[n - 1]
+        resolved = resolve_followup(fu["id"])
+        if resolved:
+            await update.message.reply_text(
+                f"Resolved: {fu['email_subject']} (to {fu['email_to']})"
+            )
+        else:
+            await update.message.reply_text("Failed to resolve follow-up.")
+        return
+
+    # /followups — list all
+    followups = list_active_followups(chat_id)
+    if not followups:
+        await update.message.reply_text("No active follow-ups.")
+        return
+
+    lines = ["Active follow-ups:"]
+    for i, fu in enumerate(followups, 1):
+        sent = fu["sent_at"][:10] if fu.get("sent_at") else "unknown"
+        lines.append(
+            f"{i}. To: {fu['email_to']}\n"
+            f"   Re: {fu['email_subject']}\n"
+            f"   Sent: {sent} (remind after {fu['reminder_days']}d)"
+        )
+
+    await update.message.reply_text("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
