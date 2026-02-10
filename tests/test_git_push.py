@@ -1,4 +1,4 @@
-"""Tests for git_push.py observer — Gitea webhook receiver.
+"""Tests for git_push.py observer -- Gitea webhook receiver.
 
 Tests cover:
 - process_push: basic flow, tag skipping, branch extraction, commit extraction
@@ -15,7 +15,19 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "observers"))
+
+# Patch config before importing observer classes
+with patch.dict("os.environ", {
+    "TELEGRAM_BOT_TOKEN": "fake:token",
+    "AUTHORIZED_USER_ID": "12345",
+}):
+    from observers.git_push import (
+        GitPushObserver,
+        WebhookHandler,
+        verify_signature,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -50,46 +62,40 @@ SAMPLE_PUSH_PAYLOAD = {
 # Fixtures
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(autouse=True)
-def use_temp_env(tmp_path, monkeypatch):
-    """Provide a temp .env file for all tests."""
-    env_file = tmp_path / ".env"
-    env_file.write_text(
-        "TELEGRAM_BOT_TOKEN=fake:token\nAUTHORIZED_USER_ID=12345\n"
-    )
-    monkeypatch.setattr("observers.git_push.ENV_PATH", env_file)
-    monkeypatch.setattr("observers.git_push.CLAUDE_BIN", "/bin/echo")
-    monkeypatch.setattr("observers.git_push.CLAUDE_CWD", str(tmp_path))
-
-
-# Import after fixture is defined — monkeypatch will be applied at test time
-from observers.git_push import (
-    process_push,
-    WebhookHandler,
-    fetch_diff,
-    verify_signature,
-    send_telegram,
-    call_claude,
-    load_env,
-    MAX_DIFF_CHARS,
-)
+@pytest.fixture
+def obs():
+    """Create a GitPushObserver instance."""
+    with patch.dict("os.environ", {
+        "TELEGRAM_BOT_TOKEN": "fake:token",
+        "AUTHORIZED_USER_ID": "12345",
+    }):
+        observer = GitPushObserver()
+    return observer
 
 
 # ---------------------------------------------------------------------------
-# process_push
+# process_push (now a method on GitPushObserver)
 # ---------------------------------------------------------------------------
 
 class TestProcessPush:
 
-    @patch("observers.git_push.send_telegram")
-    @patch("observers.git_push.call_claude")
-    @patch("observers.git_push.fetch_diff")
+    @pytest.fixture(autouse=True)
+    def make_observer(self):
+        with patch.dict("os.environ", {
+            "TELEGRAM_BOT_TOKEN": "fake:token",
+            "AUTHORIZED_USER_ID": "12345",
+        }):
+            self.obs = GitPushObserver()
+
+    @patch.object(GitPushObserver, "send_telegram")
+    @patch.object(GitPushObserver, "call_claude")
+    @patch.object(GitPushObserver, "fetch_diff")
     def test_basic_push(self, mock_diff, mock_claude, mock_tg):
         """Basic push: diff fetched, Claude called, Telegram message sent."""
         mock_diff.return_value = "--- file.py ---\n+new line"
         mock_claude.return_value = "Fixed an auth bug in the login module."
 
-        result = process_push(SAMPLE_PUSH_PAYLOAD)
+        result = self.obs.process_push(SAMPLE_PUSH_PAYLOAD)
 
         assert result is not None
         assert "puretensor/hal-claude" in result
@@ -103,35 +109,35 @@ class TestProcessPush:
         mock_claude.assert_called_once()
         mock_tg.assert_called_once()
 
-    @patch("observers.git_push.send_telegram")
-    @patch("observers.git_push.call_claude")
-    @patch("observers.git_push.fetch_diff")
+    @patch.object(GitPushObserver, "send_telegram")
+    @patch.object(GitPushObserver, "call_claude")
+    @patch.object(GitPushObserver, "fetch_diff")
     def test_skips_tags(self, mock_diff, mock_claude, mock_tg):
         """Tag pushes (refs/tags/*) should be skipped entirely."""
         payload = dict(SAMPLE_PUSH_PAYLOAD, ref="refs/tags/v1.0")
-        result = process_push(payload)
+        result = self.obs.process_push(payload)
 
         assert result is None
         mock_diff.assert_not_called()
         mock_claude.assert_not_called()
         mock_tg.assert_not_called()
 
-    @patch("observers.git_push.send_telegram")
-    @patch("observers.git_push.call_claude")
-    @patch("observers.git_push.fetch_diff")
+    @patch.object(GitPushObserver, "send_telegram")
+    @patch.object(GitPushObserver, "call_claude")
+    @patch.object(GitPushObserver, "fetch_diff")
     def test_extracts_branch(self, mock_diff, mock_claude, mock_tg):
         """Branch name correctly extracted from refs/heads/feature-xyz."""
         mock_diff.return_value = "(no diff)"
         mock_claude.return_value = "Summary"
 
         payload = dict(SAMPLE_PUSH_PAYLOAD, ref="refs/heads/feature/new-login")
-        result = process_push(payload)
+        result = self.obs.process_push(payload)
 
         assert "feature/new-login" in result
 
-    @patch("observers.git_push.send_telegram")
-    @patch("observers.git_push.call_claude")
-    @patch("observers.git_push.fetch_diff")
+    @patch.object(GitPushObserver, "send_telegram")
+    @patch.object(GitPushObserver, "call_claude")
+    @patch.object(GitPushObserver, "fetch_diff")
     def test_extracts_commits(self, mock_diff, mock_claude, mock_tg):
         """Commit messages are correctly extracted and included."""
         mock_diff.return_value = "(no diff)"
@@ -152,7 +158,7 @@ class TestProcessPush:
             },
         ])
 
-        result = process_push(payload)
+        result = self.obs.process_push(payload)
 
         assert "aaa111b" in result  # short SHA
         assert "First commit" in result  # first line only
@@ -161,9 +167,9 @@ class TestProcessPush:
         assert "Details here" not in result  # body stripped
         assert "2 commits" in result
 
-    @patch("observers.git_push.send_telegram")
-    @patch("observers.git_push.call_claude")
-    @patch("observers.git_push.fetch_diff")
+    @patch.object(GitPushObserver, "send_telegram")
+    @patch.object(GitPushObserver, "call_claude")
+    @patch.object(GitPushObserver, "fetch_diff")
     def test_multiple_commits_plural(self, mock_diff, mock_claude, mock_tg):
         """Multiple commits show plural 'commits' not 'commit'."""
         mock_diff.return_value = "(no diff)"
@@ -175,84 +181,92 @@ class TestProcessPush:
             {"id": "ccc333", "message": "C", "author": {"name": "X"}, "timestamp": ""},
         ])
 
-        result = process_push(payload)
+        result = self.obs.process_push(payload)
         assert "3 commits" in result
 
-    @patch("observers.git_push.send_telegram")
-    @patch("observers.git_push.call_claude")
-    @patch("observers.git_push.fetch_diff")
+    @patch.object(GitPushObserver, "send_telegram")
+    @patch.object(GitPushObserver, "call_claude")
+    @patch.object(GitPushObserver, "fetch_diff")
     def test_single_commit_singular(self, mock_diff, mock_claude, mock_tg):
         """Single commit shows singular 'commit' not 'commits'."""
         mock_diff.return_value = "(no diff)"
         mock_claude.return_value = "Summary"
 
-        result = process_push(SAMPLE_PUSH_PAYLOAD)
+        result = self.obs.process_push(SAMPLE_PUSH_PAYLOAD)
         assert "1 commit)" in result
 
-    @patch("observers.git_push.send_telegram")
-    @patch("observers.git_push.call_claude")
-    @patch("observers.git_push.fetch_diff")
+    @patch.object(GitPushObserver, "send_telegram")
+    @patch.object(GitPushObserver, "call_claude")
+    @patch.object(GitPushObserver, "fetch_diff")
     def test_handles_claude_failure(self, mock_diff, mock_claude, mock_tg):
         """Claude failure still sends a partial message to Telegram."""
         mock_diff.return_value = "--- file.py ---\n+change"
         mock_claude.return_value = "Claude error (exit 1): API rate limit"
 
-        result = process_push(SAMPLE_PUSH_PAYLOAD)
+        result = self.obs.process_push(SAMPLE_PUSH_PAYLOAD)
 
         assert result is not None
         assert "puretensor/hal-claude" in result
         assert "Claude error" in result
         mock_tg.assert_called_once()
 
-    @patch("observers.git_push.send_telegram")
-    @patch("observers.git_push.call_claude")
-    @patch("observers.git_push.fetch_diff")
+    @patch.object(GitPushObserver, "send_telegram")
+    @patch.object(GitPushObserver, "call_claude")
+    @patch.object(GitPushObserver, "fetch_diff")
     def test_skips_non_branch_ref(self, mock_diff, mock_claude, mock_tg):
         """Non-branch refs like refs/notes/* are skipped."""
         payload = dict(SAMPLE_PUSH_PAYLOAD, ref="refs/notes/commits")
-        result = process_push(payload)
+        result = self.obs.process_push(payload)
         assert result is None
 
-    @patch("observers.git_push.send_telegram")
-    @patch("observers.git_push.call_claude")
-    @patch("observers.git_push.fetch_diff")
+    @patch.object(GitPushObserver, "send_telegram")
+    @patch.object(GitPushObserver, "call_claude")
+    @patch.object(GitPushObserver, "fetch_diff")
     def test_new_branch_push(self, mock_diff, mock_claude, mock_tg):
         """New branch (before=0000...) still fetches diff for latest commit."""
         mock_diff.return_value = "(no diff)"
         mock_claude.return_value = "New branch created"
 
         payload = dict(SAMPLE_PUSH_PAYLOAD, before="0" * 40)
-        result = process_push(payload)
+        result = self.obs.process_push(payload)
 
         assert result is not None
         # Should call fetch_diff with after~1 as fallback
         mock_diff.assert_called_once()
 
-    @patch("observers.git_push.send_telegram")
-    @patch("observers.git_push.call_claude")
-    @patch("observers.git_push.fetch_diff")
+    @patch.object(GitPushObserver, "send_telegram")
+    @patch.object(GitPushObserver, "call_claude")
+    @patch.object(GitPushObserver, "fetch_diff")
     def test_empty_commits_list(self, mock_diff, mock_claude, mock_tg):
         """Empty commits list still processes the push."""
         mock_diff.return_value = "(no diff)"
         mock_claude.return_value = "Empty push"
 
         payload = dict(SAMPLE_PUSH_PAYLOAD, commits=[])
-        result = process_push(payload)
+        result = self.obs.process_push(payload)
 
         assert result is not None
         assert "0 commits" in result
 
 
 # ---------------------------------------------------------------------------
-# fetch_diff
+# fetch_diff (now a method on GitPushObserver)
 # ---------------------------------------------------------------------------
 
 class TestFetchDiff:
 
+    @pytest.fixture(autouse=True)
+    def make_observer(self):
+        with patch.dict("os.environ", {
+            "TELEGRAM_BOT_TOKEN": "fake:token",
+            "AUTHORIZED_USER_ID": "12345",
+        }):
+            self.obs = GitPushObserver()
+
     @patch("observers.git_push.urllib.request.urlopen")
     def test_truncation(self, mock_urlopen):
         """Diffs exceeding MAX_DIFF_CHARS are truncated."""
-        huge_patch = "x" * (MAX_DIFF_CHARS + 5000)
+        huge_patch = "x" * (self.obs.MAX_DIFF_CHARS + 5000)
         response_data = {
             "files": [{"filename": "big.py", "patch": huge_patch}]
         }
@@ -260,9 +274,9 @@ class TestFetchDiff:
         mock_resp.read.return_value = json.dumps(response_data).encode()
         mock_urlopen.return_value = mock_resp
 
-        result = fetch_diff("puretensor/hal-claude", "abc", "def")
+        result = self.obs.fetch_diff("puretensor/hal-claude", "abc", "def")
 
-        assert len(result) <= MAX_DIFF_CHARS + 200  # Allow for header + truncation marker
+        assert len(result) <= self.obs.MAX_DIFF_CHARS + 200  # Allow for header + truncation marker
         assert "[truncated]" in result
 
     @patch("observers.git_push.urllib.request.urlopen")
@@ -278,7 +292,7 @@ class TestFetchDiff:
         mock_resp.read.return_value = json.dumps(response_data).encode()
         mock_urlopen.return_value = mock_resp
 
-        result = fetch_diff("puretensor/hal-claude", "abc", "def")
+        result = self.obs.fetch_diff("puretensor/hal-claude", "abc", "def")
 
         assert "auth.py" in result
         assert "check_token" in result
@@ -300,7 +314,7 @@ class TestFetchDiff:
             mock_resp_ok,
         ]
 
-        result = fetch_diff("puretensor/hal-claude", "abc", "def")
+        result = self.obs.fetch_diff("puretensor/hal-claude", "abc", "def")
 
         assert "fallback.py" in result
         assert "fallback line" in result
@@ -310,7 +324,7 @@ class TestFetchDiff:
         """When both endpoints fail, returns error message."""
         mock_urlopen.side_effect = Exception("Connection refused")
 
-        result = fetch_diff("puretensor/hal-claude", "abc", "def")
+        result = self.obs.fetch_diff("puretensor/hal-claude", "abc", "def")
 
         assert "could not fetch diff" in result
 
@@ -328,7 +342,7 @@ class TestFetchDiff:
 
         mock_urlopen.side_effect = [mock_resp1, mock_resp2]
 
-        result = fetch_diff("puretensor/hal-claude", "abc", "def")
+        result = self.obs.fetch_diff("puretensor/hal-claude", "abc", "def")
         assert "x.py" in result
 
     @patch("observers.git_push.urllib.request.urlopen")
@@ -344,7 +358,7 @@ class TestFetchDiff:
 
         mock_urlopen.side_effect = [mock_resp1, mock_resp2]
 
-        result = fetch_diff("puretensor/hal-claude", "abc", "def")
+        result = self.obs.fetch_diff("puretensor/hal-claude", "abc", "def")
         assert "code.py" in result
 
 
@@ -354,12 +368,22 @@ class TestFetchDiff:
 
 class TestWebhookHandler:
 
+    @pytest.fixture(autouse=True)
+    def make_observer(self):
+        with patch.dict("os.environ", {
+            "TELEGRAM_BOT_TOKEN": "fake:token",
+            "AUTHORIZED_USER_ID": "12345",
+        }):
+            self.obs = GitPushObserver()
+
     def _make_handler(self, method, path, body=None, headers=None):
         """Create a mock WebhookHandler for testing."""
         handler = MagicMock(spec=WebhookHandler)
         handler.headers = headers or {}
         handler.path = path
         handler.command = method
+        # Bind the observer instance
+        handler.obs = self.obs
 
         # Mock response methods
         handler.send_response = MagicMock()
@@ -392,7 +416,7 @@ class TestWebhookHandler:
         output = handler.wfile.getvalue()
         assert output == b"OK"
 
-    @patch("observers.git_push.process_push")
+    @patch.object(GitPushObserver, "process_push")
     def test_post_calls_process_push(self, mock_process):
         """Valid POST calls process_push with parsed payload."""
         mock_process.return_value = "Message sent"
@@ -423,7 +447,7 @@ class TestWebhookHandler:
 
         handler.send_response.assert_called_with(400)
 
-    @patch("observers.git_push.process_push")
+    @patch.object(GitPushObserver, "process_push")
     def test_post_invalid_json(self, mock_process):
         """POST with invalid JSON returns 400."""
         body_bytes = b"not valid json{{"
@@ -437,10 +461,10 @@ class TestWebhookHandler:
         handler.send_response.assert_called_with(400)
         mock_process.assert_not_called()
 
-    @patch("observers.git_push.WEBHOOK_SECRET", "my-secret")
-    @patch("observers.git_push.process_push")
+    @patch.object(GitPushObserver, "process_push")
     def test_post_invalid_signature(self, mock_process):
         """POST with wrong HMAC signature returns 403."""
+        self.obs.WEBHOOK_SECRET = "my-secret"
         body_bytes = json.dumps(SAMPLE_PUSH_PAYLOAD).encode()
         handler = self._make_handler("POST", "/", headers={
             "Content-Length": str(len(body_bytes)),
@@ -453,7 +477,7 @@ class TestWebhookHandler:
         handler.send_response.assert_called_with(403)
         mock_process.assert_not_called()
 
-    @patch("observers.git_push.process_push")
+    @patch.object(GitPushObserver, "process_push")
     def test_post_process_push_exception(self, mock_process):
         """Exception in process_push doesn't crash the handler."""
         mock_process.side_effect = RuntimeError("unexpected error")
@@ -472,16 +496,15 @@ class TestWebhookHandler:
 
 
 # ---------------------------------------------------------------------------
-# verify_signature
+# verify_signature (standalone function, not a method)
 # ---------------------------------------------------------------------------
 
 class TestVerifySignature:
 
     def test_no_secret_configured(self):
-        """No secret configured — always passes."""
-        with patch("observers.git_push.WEBHOOK_SECRET", ""):
-            assert verify_signature(b"anything", "") is True
-            assert verify_signature(b"anything", "whatever") is True
+        """No secret configured -- always passes."""
+        assert verify_signature(b"anything", "", "") is True
+        assert verify_signature(b"anything", "whatever", "") is True
 
     def test_valid_signature(self):
         """Correct HMAC signature passes."""
@@ -492,99 +515,71 @@ class TestVerifySignature:
         body = b'{"ref":"refs/heads/main"}'
         sig = hmac_mod.new(secret.encode(), body, hashlib.sha256).hexdigest()
 
-        with patch("observers.git_push.WEBHOOK_SECRET", secret):
-            assert verify_signature(body, sig) is True
+        assert verify_signature(body, sig, secret) is True
 
     def test_invalid_signature(self):
         """Wrong HMAC signature fails."""
-        with patch("observers.git_push.WEBHOOK_SECRET", "real-secret"):
-            assert verify_signature(b"body", "wrong-hex") is False
+        assert verify_signature(b"body", "wrong-hex", "real-secret") is False
 
     def test_missing_signature_with_secret(self):
         """Missing signature when secret is configured fails."""
-        with patch("observers.git_push.WEBHOOK_SECRET", "secret"):
-            assert verify_signature(b"body", "") is False
+        assert verify_signature(b"body", "", "secret") is False
 
 
 # ---------------------------------------------------------------------------
-# send_telegram (parse_mode support)
+# send_telegram (via base class)
 # ---------------------------------------------------------------------------
 
 class TestSendTelegram:
 
-    @patch("observers.git_push.urllib.request.urlopen")
-    @patch("observers.git_push.urllib.request.Request")
-    def test_without_parse_mode(self, mock_req, mock_urlopen):
-        """Without parse_mode, only chat_id and text are sent."""
-        send_telegram("tok", "123", "Hello")
-        assert mock_req.call_count == 1
-        # Request(url, data=encoded_bytes) — data is a keyword arg
-        call_data = mock_req.call_args[1]["data"]
-        assert b"parse_mode" not in call_data
+    @pytest.fixture(autouse=True)
+    def make_observer(self):
+        with patch.dict("os.environ", {
+            "TELEGRAM_BOT_TOKEN": "fake:token",
+            "AUTHORIZED_USER_ID": "12345",
+        }):
+            self.obs = GitPushObserver()
 
-    @patch("observers.git_push.urllib.request.urlopen")
-    @patch("observers.git_push.urllib.request.Request")
-    def test_with_parse_mode(self, mock_req, mock_urlopen):
-        """With parse_mode, it's included in the API call."""
-        send_telegram("tok", "123", "Hello", parse_mode="HTML")
+    @patch("observers.base.urllib.request.urlopen")
+    @patch("observers.base.urllib.request.Request")
+    def test_short_message(self, mock_req, mock_urlopen):
+        """Short message sends as single request."""
+        self.obs.send_telegram("Hello")
         assert mock_req.call_count == 1
-        call_data = mock_req.call_args[1]["data"]
-        assert b"parse_mode=HTML" in call_data
+
+    @patch("observers.base.urllib.request.urlopen")
+    @patch("observers.base.urllib.request.Request")
+    def test_long_message_splits(self, mock_req, mock_urlopen):
+        """Long message splits into multiple chunks."""
+        msg = "x" * 10000
+        self.obs.send_telegram(msg)
+        assert mock_req.call_count == 3
 
 
 # ---------------------------------------------------------------------------
-# call_claude
+# call_claude (via base class)
 # ---------------------------------------------------------------------------
 
 class TestCallClaude:
 
-    @patch("observers.git_push.subprocess.run")
-    def test_successful_call(self, mock_run):
+    @pytest.fixture(autouse=True)
+    def make_observer(self):
+        with patch.dict("os.environ", {
+            "TELEGRAM_BOT_TOKEN": "fake:token",
+            "AUTHORIZED_USER_ID": "12345",
+        }):
+            self.obs = GitPushObserver()
+
+    @patch("engine.call_sync")
+    def test_successful_call(self, mock_call_sync):
         """Successful Claude call returns result text."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=json.dumps({"result": "This push fixes an auth bug."}),
-            stderr="",
-        )
-        result = call_claude("test prompt")
+        mock_call_sync.return_value = {"result": "This push fixes an auth bug."}
+        result = self.obs.call_claude("test prompt")
         assert result == "This push fixes an auth bug."
 
-    @patch("observers.git_push.subprocess.run")
-    def test_timeout(self, mock_run):
-        """Timeout returns descriptive error."""
-        import subprocess
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd="claude", timeout=300)
-        result = call_claude("test")
-        assert "timed out" in result.lower()
-
-    @patch("observers.git_push.subprocess.run")
-    def test_nonzero_exit(self, mock_run):
-        """Non-zero exit returns error with stderr."""
-        mock_run.return_value = MagicMock(
-            returncode=1, stdout="", stderr="API rate limit"
-        )
-        result = call_claude("test")
-        assert "error" in result.lower()
-        assert "rate limit" in result.lower()
-
-
-# ---------------------------------------------------------------------------
-# load_env
-# ---------------------------------------------------------------------------
-
-class TestLoadEnv:
-
-    def test_basic_parsing(self, tmp_path, monkeypatch):
-        env_file = tmp_path / ".env2"
-        env_file.write_text("TOKEN=abc\nID=999\n")
-        monkeypatch.setattr("observers.git_push.ENV_PATH", env_file)
-        result = load_env()
-        assert result["TOKEN"] == "abc"
-        assert result["ID"] == "999"
-
-    def test_comments_and_blanks(self, tmp_path, monkeypatch):
-        env_file = tmp_path / ".env2"
-        env_file.write_text("# comment\n\nKEY=value\n")
-        monkeypatch.setattr("observers.git_push.ENV_PATH", env_file)
-        result = load_env()
-        assert result == {"KEY": "value"}
+    @patch("engine.call_sync")
+    def test_empty_result(self, mock_call_sync):
+        """Missing result key returns empty string."""
+        mock_call_sync.return_value = {}
+        result = self.obs.call_claude("test")
+        assert result == ""

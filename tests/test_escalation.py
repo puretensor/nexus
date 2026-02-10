@@ -1,7 +1,7 @@
-"""Tests for alert escalation — action buttons on node_health investigation messages.
+"""Tests for alert escalation -- action buttons on node_health investigation messages.
 
 Tests cover:
-- Observer: send_telegram with/without reply_markup, get_remediation_commands,
+- Observer: send_telegram (via base class), get_remediation_commands,
   save_escalation_context (including truncation), cooldown checks
 - Bot: escalation callback handling (ignore, commands, fix, fix timeout)
 """
@@ -21,13 +21,7 @@ with patch.dict("os.environ", {
     "TELEGRAM_BOT_TOKEN": "fake:token",
     "AUTHORIZED_USER_ID": "12345",
 }):
-    from observers.node_health import (
-        send_telegram,
-        get_remediation_commands,
-        save_escalation_context,
-        check_cooldown,
-        set_cooldown,
-    )
+    from observers.node_health import NodeHealthObserver
 
 
 # ---------------------------------------------------------------------------
@@ -52,53 +46,34 @@ def _make_callback_query(data, message_text="Investigation results..."):
 
 
 # ---------------------------------------------------------------------------
-# Observer: send_telegram
+# Observer: send_telegram (via base class)
 # ---------------------------------------------------------------------------
 
 
 class TestSendTelegramKeyboard:
 
-    @patch("observers.node_health.urllib.request.urlopen")
-    def test_send_telegram_with_keyboard(self, mock_urlopen):
-        """reply_markup should appear in POST data on the last chunk."""
-        keyboard = {"inline_keyboard": [[{"text": "Fix", "callback_data": "escalation:fix:1.2.3.4:9100"}]]}
-        send_telegram("tok", "123", "Hello", reply_markup=keyboard)
+    @pytest.fixture(autouse=True)
+    def make_observer(self):
+        with patch.dict("os.environ", {
+            "TELEGRAM_BOT_TOKEN": "fake:token",
+            "AUTHORIZED_USER_ID": "12345",
+        }):
+            self.obs = NodeHealthObserver()
 
-        assert mock_urlopen.call_count == 1
-        req = mock_urlopen.call_args[0][0]
-        body = req.data.decode()
-        params = urllib.parse.parse_qs(body)
-        assert "reply_markup" in params
-        parsed = json.loads(params["reply_markup"][0])
-        assert parsed == keyboard
+    @patch("observers.base.urllib.request.urlopen")
+    @patch("observers.base.urllib.request.Request")
+    def test_send_telegram_short_message(self, mock_req, mock_urlopen):
+        """Short message sends as a single request."""
+        self.obs.send_telegram("Hello")
+        assert mock_req.call_count == 1
 
-    @patch("observers.node_health.urllib.request.urlopen")
-    def test_send_telegram_without_keyboard(self, mock_urlopen):
-        """Backward compat: no reply_markup when not provided."""
-        send_telegram("tok", "123", "Hello")
-
-        assert mock_urlopen.call_count == 1
-        req = mock_urlopen.call_args[0][0]
-        body = req.data.decode()
-        params = urllib.parse.parse_qs(body)
-        assert "reply_markup" not in params
-
-    @patch("observers.node_health.urllib.request.urlopen")
-    def test_keyboard_only_on_last_chunk(self, mock_urlopen):
-        """For multi-chunk messages, keyboard attaches only to the last chunk."""
-        long_text = "x" * 5000  # will be split into 2 chunks
-        keyboard = {"inline_keyboard": [[{"text": "Ignore", "callback_data": "escalation:ignore"}]]}
-        send_telegram("tok", "123", long_text, reply_markup=keyboard)
-
-        assert mock_urlopen.call_count == 2
-        # First chunk should NOT have reply_markup
-        first_req = mock_urlopen.call_args_list[0][0][0]
-        first_params = urllib.parse.parse_qs(first_req.data.decode())
-        assert "reply_markup" not in first_params
-        # Last chunk SHOULD have reply_markup
-        last_req = mock_urlopen.call_args_list[1][0][0]
-        last_params = urllib.parse.parse_qs(last_req.data.decode())
-        assert "reply_markup" in last_params
+    @patch("observers.base.urllib.request.urlopen")
+    @patch("observers.base.urllib.request.Request")
+    def test_send_telegram_long_message_splits(self, mock_req, mock_urlopen):
+        """Long message should be split into multiple chunks."""
+        long_text = "x" * 5000
+        self.obs.send_telegram(long_text)
+        assert mock_req.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -108,9 +83,17 @@ class TestSendTelegramKeyboard:
 
 class TestGetRemediationCommands:
 
+    @pytest.fixture(autouse=True)
+    def make_observer(self):
+        with patch.dict("os.environ", {
+            "TELEGRAM_BOT_TOKEN": "fake:token",
+            "AUTHORIZED_USER_ID": "12345",
+        }):
+            self.obs = NodeHealthObserver()
+
     def test_returns_commands_for_instance(self):
         """Should return a list of commands containing the IP."""
-        cmds = get_remediation_commands("192.168.4.185:9100")
+        cmds = self.obs.get_remediation_commands("192.168.4.185:9100")
         assert isinstance(cmds, list)
         assert len(cmds) >= 3
         assert any("192.168.4.185" in c for c in cmds)
@@ -120,7 +103,7 @@ class TestGetRemediationCommands:
 
     def test_extracts_ip_from_instance(self):
         """IP should be extracted before the colon."""
-        cmds = get_remediation_commands("10.0.0.5:9100")
+        cmds = self.obs.get_remediation_commands("10.0.0.5:9100")
         assert all("10.0.0.5" in c for c in cmds)
 
 
@@ -132,14 +115,19 @@ class TestGetRemediationCommands:
 class TestSaveEscalationContext:
 
     @pytest.fixture(autouse=True)
-    def use_temp_state(self, tmp_path, monkeypatch):
+    def use_temp_state(self, tmp_path):
+        with patch.dict("os.environ", {
+            "TELEGRAM_BOT_TOKEN": "fake:token",
+            "AUTHORIZED_USER_ID": "12345",
+        }):
+            self.obs = NodeHealthObserver()
         self.state_dir = tmp_path / ".state"
-        monkeypatch.setattr("observers.node_health.STATE_DIR", self.state_dir)
+        self.obs.STATE_DIR = self.state_dir
 
     def test_saves_json_with_correct_structure(self):
         """Should write a JSON file with timestamp, down_nodes, investigation."""
         down_nodes = [{"instance": "192.168.4.185:9100", "job": "node", "key": "test_key"}]
-        save_escalation_context(down_nodes, "Node appears to be down")
+        self.obs.save_escalation_context(down_nodes, "Node appears to be down")
 
         context_file = self.state_dir / "last_escalation.json"
         assert context_file.exists()
@@ -152,7 +140,7 @@ class TestSaveEscalationContext:
     def test_truncates_long_investigation(self):
         """Investigation text longer than 2000 chars should be truncated."""
         long_text = "A" * 5000
-        save_escalation_context([], long_text)
+        self.obs.save_escalation_context([], long_text)
 
         context_file = self.state_dir / "last_escalation.json"
         data = json.loads(context_file.read_text())
@@ -167,22 +155,27 @@ class TestSaveEscalationContext:
 class TestCooldown:
 
     @pytest.fixture(autouse=True)
-    def use_temp_state(self, tmp_path, monkeypatch):
+    def use_temp_state(self, tmp_path):
+        with patch.dict("os.environ", {
+            "TELEGRAM_BOT_TOKEN": "fake:token",
+            "AUTHORIZED_USER_ID": "12345",
+        }):
+            self.obs = NodeHealthObserver()
         self.state_dir = tmp_path / ".state"
-        monkeypatch.setattr("observers.node_health.STATE_DIR", self.state_dir)
+        self.obs.STATE_DIR = self.state_dir
 
     def test_fresh_node_returns_true(self):
         """A node that has never been seen should pass cooldown check."""
-        assert check_cooldown("new_node") is True
+        assert self.obs.check_cooldown("new_node") is True
 
     def test_after_set_returns_false(self):
         """After setting cooldown, check should return False within the window."""
-        set_cooldown("test_node")
-        assert check_cooldown("test_node") is False
+        self.obs.set_cooldown("test_node")
+        assert self.obs.check_cooldown("test_node") is False
 
 
 # ---------------------------------------------------------------------------
-# Bot: escalation callback — ignore
+# Bot: escalation callback -- ignore
 # ---------------------------------------------------------------------------
 
 
@@ -212,7 +205,7 @@ class TestEscalationIgnoreCallback:
 
 
 # ---------------------------------------------------------------------------
-# Bot: escalation callback — commands
+# Bot: escalation callback -- commands
 # ---------------------------------------------------------------------------
 
 
@@ -241,7 +234,7 @@ class TestEscalationCommandsCallback:
 
 
 # ---------------------------------------------------------------------------
-# Bot: escalation callback — fix
+# Bot: escalation callback -- fix
 # ---------------------------------------------------------------------------
 
 
