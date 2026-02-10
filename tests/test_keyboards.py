@@ -21,6 +21,7 @@ with patch.dict("os.environ", {
     "AUTHORIZED_USER_ID": "12345",
 }):
     from handlers.keyboards import get_contextual_keyboard, _is_infra_response, _is_code_response
+    from channels.telegram.callbacks import handle_callback
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +273,11 @@ class TestKeyboardStructure:
 # ---------------------------------------------------------------------------
 
 
+def _passthrough_authorized(func):
+    """No-op authorized decorator for testing."""
+    return func
+
+
 class TestCallbackRetry:
 
     @pytest.mark.asyncio
@@ -291,16 +297,11 @@ class TestCallbackRetry:
             "name": "default",
         }
 
-        with patch.dict("os.environ", {
-            "TELEGRAM_BOT_TOKEN": "fake:token",
-            "AUTHORIZED_USER_ID": "12345",
-        }):
-            with patch("channels.telegram.callbacks.get_session", return_value=mock_session):
-                with patch("channels.telegram.callbacks.StreamingEditor", return_value=mock_editor):
-                    with patch("channels.telegram.callbacks.call_streaming", new_callable=AsyncMock) as mock_claude:
-                        mock_claude.return_value = {"result": "Retry result", "session_id": "sess-123"}
-                        from channels.telegram.callbacks import handle_callback
-                        await handle_callback(update, ctx)
+        with patch("channels.telegram.callbacks.get_session", return_value=mock_session), \
+             patch("channels.telegram.callbacks.StreamingEditor", return_value=mock_editor), \
+             patch("channels.telegram.callbacks.call_streaming", new_callable=AsyncMock) as mock_claude:
+            mock_claude.return_value = {"result": "Retry result", "session_id": "sess-123"}
+            await handle_callback(update, ctx)
 
         mock_claude.assert_awaited_once()
         call_args = mock_claude.call_args
@@ -329,16 +330,11 @@ class TestCallbackDetails:
             "name": "default",
         }
 
-        with patch.dict("os.environ", {
-            "TELEGRAM_BOT_TOKEN": "fake:token",
-            "AUTHORIZED_USER_ID": "12345",
-        }):
-            with patch("channels.telegram.callbacks.get_session", return_value=mock_session):
-                with patch("channels.telegram.callbacks.StreamingEditor", return_value=mock_editor):
-                    with patch("channels.telegram.callbacks.call_streaming", new_callable=AsyncMock) as mock_claude:
-                        mock_claude.return_value = {"result": "Detailed info", "session_id": "sess-456"}
-                        from channels.telegram.callbacks import handle_callback
-                        await handle_callback(update, ctx)
+        with patch("channels.telegram.callbacks.get_session", return_value=mock_session), \
+             patch("channels.telegram.callbacks.StreamingEditor", return_value=mock_editor), \
+             patch("channels.telegram.callbacks.call_streaming", new_callable=AsyncMock) as mock_claude:
+            mock_claude.return_value = {"result": "Detailed info", "session_id": "sess-456"}
+            await handle_callback(update, ctx)
 
         mock_claude.assert_awaited_once()
         call_args = mock_claude.call_args
@@ -367,16 +363,11 @@ class TestCallbackCommit:
             "name": "default",
         }
 
-        with patch.dict("os.environ", {
-            "TELEGRAM_BOT_TOKEN": "fake:token",
-            "AUTHORIZED_USER_ID": "12345",
-        }):
-            with patch("channels.telegram.callbacks.get_session", return_value=mock_session):
-                with patch("channels.telegram.callbacks.StreamingEditor", return_value=mock_editor):
-                    with patch("channels.telegram.callbacks.call_streaming", new_callable=AsyncMock) as mock_claude:
-                        mock_claude.return_value = {"result": "Committed changes", "session_id": "sess-789"}
-                        from channels.telegram.callbacks import handle_callback
-                        await handle_callback(update, ctx)
+        with patch("channels.telegram.callbacks.get_session", return_value=mock_session), \
+             patch("channels.telegram.callbacks.StreamingEditor", return_value=mock_editor), \
+             patch("channels.telegram.callbacks.call_streaming", new_callable=AsyncMock) as mock_claude:
+            mock_claude.return_value = {"result": "Committed changes", "session_id": "sess-789"}
+            await handle_callback(update, ctx)
 
         mock_claude.assert_awaited_once()
         call_args = mock_claude.call_args
@@ -404,16 +395,11 @@ class TestCallbackDiff:
             "name": "default",
         }
 
-        with patch.dict("os.environ", {
-            "TELEGRAM_BOT_TOKEN": "fake:token",
-            "AUTHORIZED_USER_ID": "12345",
-        }):
-            with patch("channels.telegram.callbacks.get_session", return_value=mock_session):
-                with patch("channels.telegram.callbacks.StreamingEditor", return_value=mock_editor):
-                    with patch("channels.telegram.callbacks.call_streaming", new_callable=AsyncMock) as mock_claude:
-                        mock_claude.return_value = {"result": "Diff output here", "session_id": "sess-diff"}
-                        from channels.telegram.callbacks import handle_callback
-                        await handle_callback(update, ctx)
+        with patch("channels.telegram.callbacks.get_session", return_value=mock_session), \
+             patch("channels.telegram.callbacks.StreamingEditor", return_value=mock_editor), \
+             patch("channels.telegram.callbacks.call_streaming", new_callable=AsyncMock) as mock_claude:
+            mock_claude.return_value = {"result": "Diff output here", "session_id": "sess-diff"}
+            await handle_callback(update, ctx)
 
         mock_claude.assert_awaited_once()
         call_args = mock_claude.call_args
@@ -441,16 +427,11 @@ class TestCallbackSummarize:
             "name": "default",
         }
 
-        with patch.dict("os.environ", {
-            "TELEGRAM_BOT_TOKEN": "fake:token",
-            "AUTHORIZED_USER_ID": "12345",
-        }):
-            with patch("channels.telegram.callbacks.get_session", return_value=mock_session):
-                with patch("channels.telegram.callbacks.StreamingEditor", return_value=mock_editor):
-                    with patch("channels.telegram.callbacks.call_streaming", new_callable=AsyncMock) as mock_claude:
-                        mock_claude.return_value = {"result": "Summary bullets", "session_id": "sess-sum"}
-                        from channels.telegram.callbacks import handle_callback
-                        await handle_callback(update, ctx)
+        with patch("channels.telegram.callbacks.get_session", return_value=mock_session), \
+             patch("channels.telegram.callbacks.StreamingEditor", return_value=mock_editor), \
+             patch("channels.telegram.callbacks.call_streaming", new_callable=AsyncMock) as mock_claude:
+            mock_claude.return_value = {"result": "Summary bullets", "session_id": "sess-sum"}
+            await handle_callback(update, ctx)
 
         mock_claude.assert_awaited_once()
         call_args = mock_claude.call_args
