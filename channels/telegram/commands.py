@@ -64,6 +64,8 @@ from handlers.voice_tts import (
 from scheduler import parse_schedule_args
 from config import TIMEOUT, WHISPER_URL, log
 
+from drafts.queue import get_pending_drafts, approve_draft, reject_draft
+
 try:
     from memory import add_memory, remove_memory, list_memories, search_memories, memory_count
 except ImportError:
@@ -215,6 +217,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/forex — Forex rates\n"
         "/trains \\[from] \\[to] — Train departures\n"
         "/nodes — Infrastructure status\n\n"
+        "*Email Drafts*\n"
+        "/drafts — List pending email reply drafts\n\n"
         "*Quick Actions*\n"
         "/check \\[nodes|sites] — Health check\n"
         "/restart <service> \\[node] — Restart service\n"
@@ -724,6 +728,43 @@ async def cmd_memories(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(text) > 4000:
         text = text[:3997] + "..."
     await update.message.reply_text(text)
+
+
+# ---------------------------------------------------------------------------
+# Draft queue commands
+# ---------------------------------------------------------------------------
+
+
+@authorized
+async def cmd_drafts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /drafts — list pending email drafts."""
+    pending = get_pending_drafts()
+    if not pending:
+        await update.message.reply_text("No pending drafts.")
+        return
+
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    for draft in pending[:10]:  # Cap at 10 to avoid Telegram flood
+        preview = draft["draft_body"][:300]
+        if len(draft["draft_body"]) > 300:
+            preview += "..."
+
+        text = (
+            f"Draft #{draft['id']}\n"
+            f"To: {draft['email_from']}\n"
+            f"Re: {draft['email_subject']}\n\n"
+            f"{preview}"
+        )
+
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("Approve", callback_data=f"draft:approve:{draft['id']}"),
+                InlineKeyboardButton("Reject", callback_data=f"draft:reject:{draft['id']}"),
+            ],
+        ])
+
+        await update.message.reply_text(text, reply_markup=keyboard)
 
 
 # ---------------------------------------------------------------------------

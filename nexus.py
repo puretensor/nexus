@@ -56,9 +56,11 @@ async def main():
 
     # Import here to ensure config/db are ready
     from channels.telegram import TelegramChannel
+    from channels.email_in import EmailInputChannel
 
     telegram = TelegramChannel()
     registry = _build_observer_registry()
+    email_in = EmailInputChannel()
 
     # Graceful shutdown handler
     shutdown_event = asyncio.Event()
@@ -75,6 +77,10 @@ async def main():
     try:
         # Start Telegram channel
         await telegram.start()
+
+        # Start email input channel (needs bot reference for notifications)
+        email_in._bot = telegram.app.bot
+        await email_in.start()
 
         # Start observer registry loop
         observer_task = asyncio.create_task(registry.run_loop())
@@ -94,6 +100,7 @@ async def main():
                 await observer_task
             except asyncio.CancelledError:
                 pass
+        await email_in.stop()
         await telegram.stop()
         log.info("NEXUS stopped.")
 

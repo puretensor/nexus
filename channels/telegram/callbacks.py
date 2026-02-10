@@ -209,6 +209,37 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
+    if data.startswith("draft:"):
+        parts = data.split(":", 2)
+        action = parts[1] if len(parts) > 1 else ""
+        draft_id_str = parts[2] if len(parts) > 2 else ""
+
+        try:
+            draft_id = int(draft_id_str)
+        except (ValueError, TypeError):
+            await query.message.edit_text("Invalid draft ID.")
+            return
+
+        from drafts.queue import approve_draft, reject_draft
+
+        if action == "approve":
+            success, msg = approve_draft(draft_id)
+            status_icon = "\u2705" if success else "\u274c"
+            await query.message.edit_text(
+                query.message.text + f"\n\n{status_icon} {msg}"
+            )
+            return
+
+        if action == "reject":
+            success, msg = reject_draft(draft_id)
+            status_icon = "\u2705" if success else "\u274c"
+            await query.message.edit_text(
+                query.message.text + f"\n\n{status_icon} {msg}"
+            )
+            return
+
+        return
+
     if not data.startswith("refresh:"):
         return
 
