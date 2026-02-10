@@ -8,9 +8,12 @@ User=puretensorai
 Group=puretensorai
 WorkingDirectory=/home/puretensorai/nexus
 ExecStart=/usr/bin/python3 /home/puretensorai/nexus/nexus.py
-Restart=on-failure
+Restart=always
 RestartSec=10
+Environment=HOME=/home/puretensorai
 Environment=PYTHONUNBUFFERED=1
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
