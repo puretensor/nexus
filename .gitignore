@@ -19,6 +19,9 @@ build/
 # State
 .state/
 
+# Credentials
+observers/email_accounts.json
+
 # IDE
 .vscode/
 .idea/
