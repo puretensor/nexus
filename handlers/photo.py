@@ -16,7 +16,7 @@ from channels.telegram.streaming import StreamingEditor
 from engine import call_streaming, split_message
 from handlers.file_output import scan_and_send_outputs
 
-IMAGE_DIR = Path("/tmp/hal_images")
+IMAGE_DIR = Path("/tmp/pureclaw_images")
 
 
 @authorized

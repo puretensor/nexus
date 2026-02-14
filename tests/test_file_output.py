@@ -30,8 +30,8 @@ with patch.dict("os.environ", {
 
 class TestIsAllowed:
 
-    def test_tmp_hal_output(self):
-        assert _is_allowed("/tmp/hal_output/chart.png") is True
+    def test_tmp_pureclaw_output(self):
+        assert _is_allowed("/tmp/pureclaw_output/chart.png") is True
 
     def test_tmp_prefix(self):
         assert _is_allowed("/tmp/somefile.txt") is True

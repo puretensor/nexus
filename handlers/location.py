@@ -17,7 +17,7 @@ from engine import call_streaming, split_message
 from handlers.file_output import scan_and_send_outputs
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
-USER_AGENT = "HAL1000-TelegramBot/1.0"
+USER_AGENT = "PureClaw-TelegramBot/1.0"
 
 
 def _reverse_geocode(lat: float, lon: float) -> str | None:

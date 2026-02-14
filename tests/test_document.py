@@ -144,7 +144,7 @@ class TestBuildDocumentPrompt:
     def test_text_file_inlines_content(self):
         content = b"print('hello world')"
         prompt, cleanup = _build_document_prompt(
-            "script.py", "text/x-python", "/tmp/hal_docs/script.py", content, None
+            "script.py", "text/x-python", "/tmp/pureclaw_docs/script.py", content, None
         )
         assert "print('hello world')" in prompt
         assert "```" in prompt
@@ -154,7 +154,7 @@ class TestBuildDocumentPrompt:
     def test_text_file_with_caption(self):
         content = b"x = 1"
         prompt, cleanup = _build_document_prompt(
-            "test.py", None, "/tmp/hal_docs/test.py", content, "Explain this code"
+            "test.py", None, "/tmp/pureclaw_docs/test.py", content, "Explain this code"
         )
         assert "Explain this code" in prompt
         assert "x = 1" in prompt
@@ -163,14 +163,14 @@ class TestBuildDocumentPrompt:
     def test_text_file_without_caption(self):
         content = b"data"
         prompt, cleanup = _build_document_prompt(
-            "notes.txt", "text/plain", "/tmp/hal_docs/notes.txt", content, None
+            "notes.txt", "text/plain", "/tmp/pureclaw_docs/notes.txt", content, None
         )
         assert "Analyze its contents" in prompt
 
     def test_text_file_truncates_large_content(self):
         content = b"x" * (MAX_INLINE_CHARS + 5000)
         prompt, cleanup = _build_document_prompt(
-            "big.txt", "text/plain", "/tmp/hal_docs/big.txt", content, None
+            "big.txt", "text/plain", "/tmp/pureclaw_docs/big.txt", content, None
         )
         assert "truncated" in prompt
         assert len(prompt) < MAX_INLINE_CHARS + 1000
@@ -178,7 +178,7 @@ class TestBuildDocumentPrompt:
     def test_text_file_utf8_errors_replaced(self):
         content = b"hello \xff\xfe world"
         prompt, cleanup = _build_document_prompt(
-            "data.txt", "text/plain", "/tmp/hal_docs/data.txt", content, None
+            "data.txt", "text/plain", "/tmp/pureclaw_docs/data.txt", content, None
         )
         assert "hello" in prompt
         assert "world" in prompt
@@ -187,42 +187,42 @@ class TestBuildDocumentPrompt:
     def test_pdf_references_path(self):
         content = b"%PDF-1.4 binary data"
         prompt, cleanup = _build_document_prompt(
-            "report.pdf", "application/pdf", "/tmp/hal_docs/report.pdf", content, None
+            "report.pdf", "application/pdf", "/tmp/pureclaw_docs/report.pdf", content, None
         )
-        assert "/tmp/hal_docs/report.pdf" in prompt
+        assert "/tmp/pureclaw_docs/report.pdf" in prompt
         assert "Read tool" in prompt
         assert cleanup is False
 
     def test_pdf_with_caption(self):
         content = b"%PDF"
         prompt, cleanup = _build_document_prompt(
-            "doc.pdf", "application/pdf", "/tmp/hal_docs/doc.pdf", content, "Summarize this"
+            "doc.pdf", "application/pdf", "/tmp/pureclaw_docs/doc.pdf", content, "Summarize this"
         )
         assert "Summarize this" in prompt
-        assert "/tmp/hal_docs/doc.pdf" in prompt
+        assert "/tmp/pureclaw_docs/doc.pdf" in prompt
 
     def test_image_document_references_path(self):
         content = b"\x89PNG binary"
         prompt, cleanup = _build_document_prompt(
-            "photo.png", "image/png", "/tmp/hal_docs/photo.png", content, None
+            "photo.png", "image/png", "/tmp/pureclaw_docs/photo.png", content, None
         )
-        assert "/tmp/hal_docs/photo.png" in prompt
+        assert "/tmp/pureclaw_docs/photo.png" in prompt
         assert "image file" in prompt
         assert cleanup is False
 
     def test_binary_file_references_path(self):
         content = b"\x00\x01 binary"
         prompt, cleanup = _build_document_prompt(
-            "data.bin", "application/octet-stream", "/tmp/hal_docs/data.bin", content, None
+            "data.bin", "application/octet-stream", "/tmp/pureclaw_docs/data.bin", content, None
         )
-        assert "/tmp/hal_docs/data.bin" in prompt
+        assert "/tmp/pureclaw_docs/data.bin" in prompt
         assert "application/octet-stream" in prompt
         assert cleanup is False
 
     def test_binary_no_mime(self):
         content = b"\x00\x01"
         prompt, cleanup = _build_document_prompt(
-            "data.bin", None, "/tmp/hal_docs/data.bin", content, "What is this?"
+            "data.bin", None, "/tmp/pureclaw_docs/data.bin", content, "What is this?"
         )
         assert "What is this?" in prompt
         assert cleanup is False

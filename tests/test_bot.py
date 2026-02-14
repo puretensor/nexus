@@ -8,7 +8,7 @@ Focus areas:
 - Auth decorator logic
 - Reply-to context building
 - Streaming editor
-- HAL system prompt loading
+- PureClaw system prompt loading
 """
 
 import asyncio
@@ -577,10 +577,10 @@ class TestReadStream:
 
 
 # ---------------------------------------------------------------------------
-# HAL System Prompt (5A)
+# PureClaw System Prompt (5A)
 # ---------------------------------------------------------------------------
 
-class TestHALSystemPrompt:
+class TestPureClawSystemPrompt:
 
     def test_system_prompt_loaded(self):
         """System prompt should be loaded from nexus_system_prompt.md."""

@@ -20,7 +20,7 @@ CLAUDE_CWD = os.environ.get("CLAUDE_CWD", "/home/puretensorai")
 TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "300"))
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:9000/transcribe")
 
-# Engine backend selection (claude_code, anthropic_api, ollama, openai_compat, gemini_cli, codex_cli)
+# Engine backend selection (claude_code, anthropic_api, gemini_api, ollama, openai_compat, gemini_cli, codex_cli)
 ENGINE_BACKEND = os.environ.get("ENGINE_BACKEND", "claude_code")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
@@ -31,8 +31,13 @@ OLLAMA_TOOL_TIMEOUT = int(os.environ.get("OLLAMA_TOOL_TIMEOUT", "30"))
 OPENAI_COMPAT_URL = os.environ.get("OPENAI_COMPAT_URL", "")
 OPENAI_COMPAT_KEY = os.environ.get("OPENAI_COMPAT_KEY", "")
 OPENAI_COMPAT_MODEL = os.environ.get("OPENAI_COMPAT_MODEL", "gpt-4o")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_API_MODEL = os.environ.get("GEMINI_API_MODEL", "gemini-2.5-flash")
 GEMINI_BIN = os.environ.get("GEMINI_BIN", "/usr/bin/gemini")
+GEMINI_CLI_MODEL = os.environ.get("GEMINI_CLI_MODEL", "gemini-2.5-flash")
 CODEX_BIN = os.environ.get("CODEX_BIN", "/usr/bin/codex")
+CODEX_MODEL = os.environ.get("CODEX_MODEL", "")
+CODEX_CWD = os.environ.get("CODEX_CWD", "/home/puretensorai")
 ALERT_BOT_TOKEN = os.environ.get("ALERT_BOT_TOKEN", BOT_TOKEN)  # fallback to main bot
 
 # Dispatcher
@@ -56,7 +61,7 @@ SNIPPET_TO = os.environ.get("SNIPPET_TO", "")
 # Paths
 DB_PATH = Path(__file__).parent / "nexus.db"
 SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "nexus_system_prompt.md"
-CONTEXT_PATH = Path(__file__).parent / "prompts" / "hal_context.md"
+CONTEXT_PATH = Path(__file__).parent / "prompts" / "pureclaw_context.md"
 
 # ---------------------------------------------------------------------------
 # System prompt

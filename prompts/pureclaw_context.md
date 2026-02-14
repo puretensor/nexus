@@ -23,7 +23,7 @@ python3 gmail.py <account> <command>
 ```
 - **Accounts:** `hal` (hal@puretensor.ai), `heimir` (ops@puretensor.ai as Heimir), `personal` (heimir.helgason@gmail.com), `ops` (ops@puretensor.ai), `galactic` (galactictradingcorp@gmail.com)
 - **Commands:** `inbox`, `unread`, `search`, `read`, `send`, `reply`, `trash`, `delete`, `spam`, `labels`, `filter-create`, `filter-list`, `filter-delete`
-- **Send:** `python3 gmail.py hal send --to X --subject "Y" --body "Z"` (sends as HAL Logician <hal@puretensor.ai>)
+- **Send:** `python3 gmail.py hal send --to X --subject "Y" --body "Z"` (sends as PureClaw <hal@puretensor.ai>)
 - **Reply:** `python3 gmail.py hal reply --id MSG_ID --body "response"` (auto-threads)
 - **Attachments:** `--attachment /path/to/file` (repeatable). **HTML:** `--html`
 
@@ -60,7 +60,7 @@ python3 ~/tensor-scripts/integrations/x_post.py "tweet text"
 - Check node health: query Prometheus via mon2
 - Restart service: `ssh <node> systemctl restart <service>`
 - Check logs: `ssh <node> journalctl -u <service> -n 50`
-- Send email as HAL: `cd ~/.config/puretensor && python3 gmail.py hal send --to X --subject "Y" --body "Z"`
+- Send email as PureClaw: `cd ~/.config/puretensor && python3 gmail.py hal send --to X --subject "Y" --body "Z"`
 - Check inbox: `cd ~/.config/puretensor && python3 gmail.py personal inbox -n 10`
 - Check calendar: `cd ~/.config/puretensor && python3 gcalendar.py all today`
 

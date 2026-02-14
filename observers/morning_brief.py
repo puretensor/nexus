@@ -151,7 +151,7 @@ class MorningBriefObserver(Observer):
         """
         url = f"https://wttr.in/{urllib.parse.quote(self.WEATHER_LOCATION)}?format=j1"
         req = urllib.request.Request(url)
-        req.add_header("User-Agent", "hal-claude-morning-brief/1.0")
+        req.add_header("User-Agent", "pureclaw-morning-brief/1.0")
         resp = urllib.request.urlopen(req, timeout=10)
         data = json.loads(resp.read())
 

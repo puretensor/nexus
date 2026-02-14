@@ -125,11 +125,15 @@ class TestAutoReply:
         # ops@puretensor.ai is VIP even though it might match some pattern
         assert classify_email("ops@puretensor.ai", "Unsubscribe link") == "auto_reply"
 
-    def test_email_to_hal(self):
-        """Emails addressed to hal@ get auto_reply."""
+    def test_email_to_hal_from_unknown(self):
+        """Emails to hal@ from unknown senders get notify (not auto_reply).
+
+        Security: unknown sender content must not be fed to an LLM.
+        The pureclaw_email_responder observer handles hal@ with a strict allowlist.
+        """
         assert classify_email(
             "stranger@company.com", "Hello", to_addr="hal@puretensor.ai"
-        ) == "auto_reply"
+        ) == "notify"
 
 
 # ---------------------------------------------------------------------------

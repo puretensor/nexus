@@ -6,7 +6,7 @@ import os
 
 from dispatcher.apis import get_session, DispatchError
 
-log = logging.getLogger("claude-telegram")
+log = logging.getLogger("nexus")
 
 # Node SSH targets — map friendly names to SSH hosts
 # These must match ~/.ssh/config or ~/.ssh/config.puretensor
@@ -27,7 +27,7 @@ NODES = {
 
 # Services that can be restarted (whitelist for safety)
 ALLOWED_SERVICES = {
-    "claude-telegram-bot",
+    "nexus",
     "whatsapp-translator",
     "bretalon-report-bot",
     "nginx",

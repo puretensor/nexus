@@ -197,7 +197,31 @@ async def cmd_backend(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton(
-                label(f"Qwen 3 235B (local)", current == "ollama"),
+                label("Gemini CLI", current == "gemini_cli"),
+                callback_data="backend:gemini_cli:sonnet",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                label("Codex CLI", current == "codex_cli"),
+                callback_data="backend:codex_cli:sonnet",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                label("Anthropic API", current == "anthropic_api"),
+                callback_data="backend:anthropic_api:sonnet",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                label("Gemini API", current == "gemini_api"),
+                callback_data="backend:gemini_api:sonnet",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                label("Qwen 3 235B (local)", current == "ollama"),
                 callback_data="backend:ollama:sonnet",
             ),
         ],
@@ -267,7 +291,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/status — Show current session info\n\n"
         "*Scheduled Tasks & Reminders*\n"
         "/remind <when> <message> — Set a reminder\n"
-        "/schedule <when> <prompt> — Run Claude at a time\n"
+        "/schedule <when> <prompt> — Run prompt at a time\n"
         "  _5pm, tomorrow 9am, monday, 9 feb, daily 8am_\n"
         "/cancel <n> — Cancel a task or reminder\n\n"
         "*Memory*\n"
@@ -294,7 +318,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/deploy <site> — Trigger deploy\n\n"
         "/help — This message\n\n"
         "Send a location to get context-aware responses\n\n"
-        "Any other text is sent to Claude.",
+        "Any other text is sent to the AI engine.",
         parse_mode=ParseMode.MARKDOWN,
     )
 

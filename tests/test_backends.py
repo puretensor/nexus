@@ -61,6 +61,13 @@ class TestProtocolCompliance:
             backend = OpenAICompatBackend()
             assert isinstance(backend, Backend)
 
+    def test_gemini_api_implements_protocol(self):
+        """GeminiAPIBackend satisfies the Backend protocol."""
+        with patch("config.GEMINI_API_KEY", "test-key"):
+            from backends.gemini_api import GeminiAPIBackend
+            backend = GeminiAPIBackend()
+            assert isinstance(backend, Backend)
+
 
 # ---------------------------------------------------------------------------
 # Factory
@@ -120,6 +127,20 @@ class TestFactory:
         with patch("config.ENGINE_BACKEND", "openai_compat"), \
              patch("config.OPENAI_COMPAT_URL", ""):
             with pytest.raises(ValueError, match="OPENAI_COMPAT_URL"):
+                get_backend()
+
+    def test_gemini_api_creates_backend(self):
+        """ENGINE_BACKEND=gemini_api creates GeminiAPIBackend."""
+        with patch("config.ENGINE_BACKEND", "gemini_api"), \
+             patch("config.GEMINI_API_KEY", "test-key"):
+            backend = get_backend()
+            assert backend.name == "gemini_api"
+
+    def test_gemini_api_requires_key(self):
+        """gemini_api backend requires GEMINI_API_KEY."""
+        with patch("config.ENGINE_BACKEND", "gemini_api"), \
+             patch("config.GEMINI_API_KEY", ""):
+            with pytest.raises(ValueError, match="GEMINI_API_KEY"):
                 get_backend()
 
 
@@ -450,7 +471,7 @@ class TestOllamaBackend:
 
 
 # ---------------------------------------------------------------------------
-# GeminiCLIBackend (stub)
+# GeminiCLIBackend
 # ---------------------------------------------------------------------------
 
 class TestGeminiCLIBackend:
@@ -459,9 +480,17 @@ class TestGeminiCLIBackend:
         backend = GeminiCLIBackend()
         assert backend.name == "gemini_cli"
 
-    def test_no_streaming(self):
+    def test_supports_streaming(self):
         backend = GeminiCLIBackend()
-        assert backend.supports_streaming is False
+        assert backend.supports_streaming is True
+
+    def test_supports_tools(self):
+        backend = GeminiCLIBackend()
+        assert backend.supports_tools is True
+
+    def test_supports_sessions(self):
+        backend = GeminiCLIBackend()
+        assert backend.supports_sessions is True
 
     def test_call_sync_not_found(self):
         """call_sync should handle missing binary gracefully."""
@@ -472,9 +501,92 @@ class TestGeminiCLIBackend:
 
         assert "not found" in result["result"].lower()
 
+    def test_call_sync_parses_json(self):
+        """call_sync should parse JSON response from Gemini CLI."""
+        backend = GeminiCLIBackend()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"response": "Hello from Gemini", "session_id": "gem-1"})
+        mock_result.stderr = ""
+
+        with patch("backends.gemini_cli.subprocess.run", return_value=mock_result):
+            result = backend.call_sync("test prompt")
+
+        assert result["result"] == "Hello from Gemini"
+        assert result["session_id"] == "gem-1"
+
+    def test_call_sync_correct_flags(self):
+        """call_sync should use correct CLI flags (-p, --output-format json, --yolo)."""
+        backend = GeminiCLIBackend()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"response": "ok"})
+        mock_result.stderr = ""
+
+        with patch("backends.gemini_cli.subprocess.run", return_value=mock_result) as mock_run:
+            backend.call_sync("test prompt")
+            cmd = mock_run.call_args[0][0]
+            assert "-p" in cmd
+            assert "--output-format" in cmd
+            idx = cmd.index("--output-format")
+            assert cmd[idx + 1] == "json"
+            assert "--yolo" in cmd
+
+    def test_call_sync_session_flag(self):
+        """call_sync should pass -r flag when session_id is provided."""
+        backend = GeminiCLIBackend()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"response": "ok"})
+        mock_result.stderr = ""
+
+        with patch("backends.gemini_cli.subprocess.run", return_value=mock_result) as mock_run:
+            backend.call_sync("test", session_id="latest")
+            cmd = mock_run.call_args[0][0]
+            assert "-r" in cmd
+            idx = cmd.index("-r")
+            assert cmd[idx + 1] == "latest"
+
+    def test_call_sync_model_flag(self):
+        """call_sync should pass -m flag for model selection."""
+        backend = GeminiCLIBackend()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"response": "ok"})
+        mock_result.stderr = ""
+
+        with patch("backends.gemini_cli.subprocess.run", return_value=mock_result) as mock_run:
+            backend.call_sync("test")
+            cmd = mock_run.call_args[0][0]
+            assert "-m" in cmd
+
+    def test_call_sync_handles_timeout(self):
+        """call_sync should handle subprocess timeout."""
+        import subprocess
+        backend = GeminiCLIBackend()
+
+        with patch("backends.gemini_cli.subprocess.run",
+                    side_effect=subprocess.TimeoutExpired(cmd="gemini", timeout=300)):
+            result = backend.call_sync("test", timeout=300)
+
+        assert "timed out" in result["result"].lower()
+
+    def test_call_sync_handles_nonzero_exit(self):
+        """call_sync should handle non-zero exit code."""
+        backend = GeminiCLIBackend()
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "something went wrong"
+        mock_result.stdout = ""
+
+        with patch("backends.gemini_cli.subprocess.run", return_value=mock_result):
+            result = backend.call_sync("test")
+
+        assert "error" in result["result"].lower()
+
 
 # ---------------------------------------------------------------------------
-# CodexCLIBackend (stub)
+# CodexCLIBackend
 # ---------------------------------------------------------------------------
 
 class TestCodexCLIBackend:
@@ -483,9 +595,17 @@ class TestCodexCLIBackend:
         backend = CodexCLIBackend()
         assert backend.name == "codex_cli"
 
-    def test_no_streaming(self):
+    def test_supports_streaming(self):
         backend = CodexCLIBackend()
-        assert backend.supports_streaming is False
+        assert backend.supports_streaming is True
+
+    def test_supports_tools(self):
+        backend = CodexCLIBackend()
+        assert backend.supports_tools is True
+
+    def test_no_sessions(self):
+        backend = CodexCLIBackend()
+        assert backend.supports_sessions is False
 
     def test_call_sync_not_found(self):
         """call_sync should handle missing binary gracefully."""
@@ -495,6 +615,74 @@ class TestCodexCLIBackend:
             result = backend.call_sync("test")
 
         assert "not found" in result["result"].lower()
+
+    def test_call_sync_uses_exec_subcommand(self):
+        """call_sync should use 'exec' subcommand."""
+        backend = CodexCLIBackend()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"type": "message", "role": "assistant", "content": "ok"})
+        mock_result.stderr = ""
+
+        with patch("backends.codex_cli.subprocess.run", return_value=mock_result) as mock_run:
+            backend.call_sync("test prompt")
+            cmd = mock_run.call_args[0][0]
+            assert cmd[1] == "exec"
+
+    def test_call_sync_correct_flags(self):
+        """call_sync should use correct flags (--json, --dangerously-bypass..., --skip-git-repo-check)."""
+        backend = CodexCLIBackend()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"type": "message", "role": "assistant", "content": "ok"})
+        mock_result.stderr = ""
+
+        with patch("backends.codex_cli.subprocess.run", return_value=mock_result) as mock_run:
+            backend.call_sync("test prompt")
+            cmd = mock_run.call_args[0][0]
+            assert "--json" in cmd
+            assert "--dangerously-bypass-approvals-and-sandbox" in cmd
+            assert "--skip-git-repo-check" in cmd
+
+    def test_call_sync_parses_jsonl(self):
+        """call_sync should parse JSONL output from codex exec."""
+        backend = CodexCLIBackend()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps(
+            {"type": "message", "role": "assistant", "content": "Hello from Codex"}
+        )
+        mock_result.stderr = ""
+
+        with patch("backends.codex_cli.subprocess.run", return_value=mock_result):
+            result = backend.call_sync("test prompt")
+
+        assert result["result"] == "Hello from Codex"
+        assert result["session_id"] is None
+
+    def test_call_sync_handles_timeout(self):
+        """call_sync should handle subprocess timeout."""
+        import subprocess
+        backend = CodexCLIBackend()
+
+        with patch("backends.codex_cli.subprocess.run",
+                    side_effect=subprocess.TimeoutExpired(cmd="codex", timeout=300)):
+            result = backend.call_sync("test", timeout=300)
+
+        assert "timed out" in result["result"].lower()
+
+    def test_call_sync_handles_nonzero_exit(self):
+        """call_sync should handle non-zero exit code."""
+        backend = CodexCLIBackend()
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "something went wrong"
+        mock_result.stdout = ""
+
+        with patch("backends.codex_cli.subprocess.run", return_value=mock_result):
+            result = backend.call_sync("test")
+
+        assert "error" in result["result"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -591,3 +779,129 @@ class TestOpenAICompatBackend:
                 backend.call_sync("test")
                 req = mock_urlopen.call_args[0][0]
                 assert req.get_header("Authorization") == "Bearer sk-test-key"
+
+
+# ---------------------------------------------------------------------------
+# GeminiAPIBackend
+# ---------------------------------------------------------------------------
+
+class TestGeminiAPIBackend:
+
+    def test_requires_api_key(self):
+        """Should raise ValueError without API key."""
+        with patch("config.GEMINI_API_KEY", ""):
+            from backends.gemini_api import GeminiAPIBackend
+            with pytest.raises(ValueError, match="GEMINI_API_KEY"):
+                GeminiAPIBackend()
+
+    def test_name(self):
+        with patch("config.GEMINI_API_KEY", "test-key"), \
+             patch("config.GEMINI_API_MODEL", "gemini-2.5-flash"):
+            from backends.gemini_api import GeminiAPIBackend
+            backend = GeminiAPIBackend()
+            assert backend.name == "gemini_api"
+
+    def test_no_sessions(self):
+        with patch("config.GEMINI_API_KEY", "test-key"), \
+             patch("config.GEMINI_API_MODEL", "gemini-2.5-flash"):
+            from backends.gemini_api import GeminiAPIBackend
+            backend = GeminiAPIBackend()
+            assert backend.supports_sessions is False
+
+    def test_supports_streaming(self):
+        with patch("config.GEMINI_API_KEY", "test-key"), \
+             patch("config.GEMINI_API_MODEL", "gemini-2.5-flash"):
+            from backends.gemini_api import GeminiAPIBackend
+            backend = GeminiAPIBackend()
+            assert backend.supports_streaming is True
+
+    def test_no_tools(self):
+        with patch("config.GEMINI_API_KEY", "test-key"), \
+             patch("config.GEMINI_API_MODEL", "gemini-2.5-flash"):
+            from backends.gemini_api import GeminiAPIBackend
+            backend = GeminiAPIBackend()
+            assert backend.supports_tools is False
+
+    def test_call_sync_success(self):
+        """call_sync should parse Gemini response format."""
+        with patch("config.GEMINI_API_KEY", "test-key"), \
+             patch("config.GEMINI_API_MODEL", "gemini-2.5-flash"):
+            from backends.gemini_api import GeminiAPIBackend
+            backend = GeminiAPIBackend()
+
+            response_data = json.dumps({
+                "candidates": [{
+                    "content": {
+                        "parts": [{"text": "Hello from Gemini"}],
+                        "role": "model",
+                    }
+                }]
+            }).encode()
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = response_data
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+
+            with patch("backends.gemini_api.urllib.request.urlopen", return_value=mock_resp):
+                result = backend.call_sync("test prompt")
+
+            assert result["result"] == "Hello from Gemini"
+            assert result["session_id"] is None
+
+    def test_call_sync_includes_system_instruction(self):
+        """call_sync should include systemInstruction when system_prompt is set."""
+        with patch("config.GEMINI_API_KEY", "test-key"), \
+             patch("config.GEMINI_API_MODEL", "gemini-2.5-flash"):
+            from backends.gemini_api import GeminiAPIBackend
+            backend = GeminiAPIBackend()
+
+            response_data = json.dumps({
+                "candidates": [{"content": {"parts": [{"text": "ok"}]}}]
+            }).encode()
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = response_data
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+
+            with patch("backends.gemini_api.urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+                backend.call_sync("test", system_prompt="Be helpful")
+                req = mock_urlopen.call_args[0][0]
+                payload = json.loads(req.data.decode())
+                assert "systemInstruction" in payload
+                assert "Be helpful" in payload["systemInstruction"]["parts"][0]["text"]
+
+    def test_call_sync_uses_correct_endpoint(self):
+        """call_sync should use the correct Gemini generateContent endpoint."""
+        with patch("config.GEMINI_API_KEY", "test-key"), \
+             patch("config.GEMINI_API_MODEL", "gemini-2.5-flash"):
+            from backends.gemini_api import GeminiAPIBackend
+            backend = GeminiAPIBackend()
+
+            response_data = json.dumps({
+                "candidates": [{"content": {"parts": [{"text": "ok"}]}}]
+            }).encode()
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = response_data
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+
+            with patch("backends.gemini_api.urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+                backend.call_sync("test")
+                req = mock_urlopen.call_args[0][0]
+                assert "generativelanguage.googleapis.com" in req.full_url
+                assert "gemini-2.5-flash:generateContent" in req.full_url
+                assert "key=test-key" in req.full_url
+
+    def test_call_sync_connection_error(self):
+        """call_sync should handle connection errors."""
+        import urllib.error
+        with patch("config.GEMINI_API_KEY", "test-key"), \
+             patch("config.GEMINI_API_MODEL", "gemini-2.5-flash"):
+            from backends.gemini_api import GeminiAPIBackend
+            backend = GeminiAPIBackend()
+
+            with patch("backends.gemini_api.urllib.request.urlopen",
+                       side_effect=urllib.error.URLError("Connection refused")):
+                result = backend.call_sync("test")
+
+            assert "error" in result["result"].lower()

@@ -250,7 +250,7 @@ class TestGetMemoriesForInjection:
         add_memory("tensor-core runs Proxmox with 4 nodes", "infrastructure")
 
         output = get_memories_for_injection()
-        assert output.startswith("[HAL Memory]")
+        assert output.startswith("[PureClaw Memory]")
         assert "- preferences: User prefers concise responses" in output
         assert "- infrastructure: tensor-core runs Proxmox with 4 nodes" in output
 

@@ -1,4 +1,4 @@
-"""Persistent memory layer for HAL — file-based JSON store at ~/.hal/memory.json."""
+"""Persistent memory layer for PureClaw — file-based JSON store at ~/.hal/memory.json."""
 
 import json
 import logging
@@ -151,7 +151,7 @@ def get_memories_for_injection(limit: int = 10) -> str:
     """Return a formatted string of the most recent N memories for prompt injection.
 
     Format:
-        [HAL Memory]
+        [PureClaw Memory]
         - category: text
         - category: text
         ...
@@ -162,7 +162,7 @@ def get_memories_for_injection(limit: int = 10) -> str:
     if not memories:
         return ""
 
-    lines = ["[HAL Memory]"]
+    lines = ["[PureClaw Memory]"]
     for mem in memories:
         lines.append(f"- {mem['category']}: {mem['text']}")
     return "\n".join(lines)

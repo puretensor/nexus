@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from observers.base import Observer, ObserverResult
-from config import PROMETHEUS_URL
+from config import PROMETHEUS_URL, ALERT_BOT_TOKEN, AUTHORIZED_USER_ID
 
 log = logging.getLogger("nexus")
 
@@ -126,7 +126,7 @@ class NodeHealthObserver(Observer):
 
         # Send raw alert to Telegram
         timestamp = datetime.now(timezone.utc).strftime("%H:%M UTC")
-        self.send_telegram(f"[{timestamp}] ALERT\n\n{alert_text}")
+        self.send_telegram(f"[{timestamp}] ALERT\n\n{alert_text}", token=ALERT_BOT_TOKEN)
 
         # Invoke Claude to investigate
         prompt = (
@@ -137,7 +137,7 @@ class NodeHealthObserver(Observer):
             "3. Determine if it's a node_exporter issue vs actual node failure\n"
             "4. Attempt remediation if possible (restart exporter, etc.)\n"
             "5. Summarise findings concisely\n\n"
-            "This is an automated alert from the HAL Claude observer system."
+            "This is an automated alert from the PureClaw observer system."
         )
 
         log.info("Invoking Claude to investigate %d down nodes...", len(down_nodes))
@@ -161,9 +161,7 @@ class NodeHealthObserver(Observer):
         keyboard = {"inline_keyboard": buttons}
 
         # Send Claude's analysis to Telegram with action buttons
-        # Use the raw Telegram API for reply_markup support
-        from config import BOT_TOKEN, AUTHORIZED_USER_ID
-
+        # Use the alert bot (@puretensor_alert_bot), not the conversational PureClaw bot
         payload = {
             "chat_id": str(AUTHORIZED_USER_ID),
             "text": f"[{timestamp}] INVESTIGATION\n\n{claude_response}"[:4000],
@@ -171,7 +169,7 @@ class NodeHealthObserver(Observer):
         }
         req_data = urllib.parse.urlencode(payload).encode()
         req = urllib.request.Request(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data=req_data
+            f"https://api.telegram.org/bot{ALERT_BOT_TOKEN}/sendMessage", data=req_data
         )
         try:
             urllib.request.urlopen(req, timeout=15)

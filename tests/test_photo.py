@@ -73,7 +73,7 @@ class TestHandlePhoto:
     @pytest.fixture(autouse=True)
     def setup_patches(self, tmp_path):
         """Patch IMAGE_DIR to use a temp directory and mock Claude streaming."""
-        self.tmp_image_dir = tmp_path / "hal_images"
+        self.tmp_image_dir = tmp_path / "pureclaw_images"
         self.tmp_image_dir.mkdir()
 
         self.mock_editor = AsyncMock()

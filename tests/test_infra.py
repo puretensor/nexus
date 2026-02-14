@@ -75,7 +75,7 @@ class TestConstants:
 
     def test_allowed_services_contains_key_services(self):
         """Whitelist should include known services."""
-        assert "claude-telegram-bot" in ALLOWED_SERVICES
+        assert "nexus" in ALLOWED_SERVICES
         assert "nginx" in ALLOWED_SERVICES
 
 

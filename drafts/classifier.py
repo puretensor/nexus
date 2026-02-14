@@ -106,9 +106,11 @@ def classify_email(from_addr: str, subject: str, to_addr: str = "") -> str:
         if re.search(pattern, subject_lower):
             return "notify"
 
-    # Direct emails to hal@ get auto_reply
+    # Direct emails to hal@ from unknown senders: notify only (no LLM).
+    # The pureclaw_email_responder observer handles hal@ with a strict allowlist.
+    # Do NOT send unknown sender content to the LLM here.
     if to_addr and "hal@" in to_addr.lower():
-        return "auto_reply"
+        return "notify"
 
     # Default: notify (safe — user sees it but no draft created)
     return "notify"

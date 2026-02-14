@@ -252,7 +252,7 @@ class TestEmailInputChannel:
             "subject": "Report feedback",
             "date": "Feb 10 09:00",
             "to": "hal@puretensor.ai",
-            "body": "Hi HAL, the latest report was excellent. Can you update the analysis?",
+            "body": "Hi PureClaw, the latest report was excellent. Can you update the analysis?",
         }
 
         bot = MagicMock()

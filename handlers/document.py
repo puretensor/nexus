@@ -20,7 +20,7 @@ from engine import call_streaming, split_message
 from handlers.file_output import scan_and_send_outputs
 
 # Directory for temporary document storage
-DOC_DIR = "/tmp/hal_docs"
+DOC_DIR = "/tmp/pureclaw_docs"
 
 # Max file sizes in bytes
 WARN_SIZE = 10 * 1024 * 1024   # 10 MB

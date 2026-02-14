@@ -29,11 +29,13 @@ def _build_observer_registry():
     observers = [
         ("observers.email_digest", "EmailDigestObserver"),
         ("observers.morning_brief", "MorningBriefObserver"),
-        ("observers.node_health", "NodeHealthObserver"),
+        # node_health disabled — alerting handled by Alertmanager on mon2
+        # ("observers.node_health", "NodeHealthObserver"),
         ("observers.daily_snippet", "DailySnippetObserver"),
         ("observers.bretalon_review", "BretalonReviewObserver"),
         ("observers.git_push", "GitPushObserver"),
         ("observers.followup_reminder", "FollowupReminderObserver"),
+        ("observers.pureclaw_email_responder", "PureClawEmailResponderObserver"),
     ]
 
     import importlib

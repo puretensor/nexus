@@ -10,7 +10,7 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 # Allowed output path prefixes (files outside these are not auto-sent)
 ALLOWED_PREFIXES = (
-    "/tmp/hal_output/",
+    "/tmp/pureclaw_output/",
     "/tmp/",
     os.path.expanduser("~/images/"),
 )

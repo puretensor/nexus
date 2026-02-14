@@ -254,7 +254,7 @@ class EmailInputChannel(Channel):
 
         body_preview = em["body"][:2000] if em.get("body") else "(no body)"
         prompt = (
-            "You are HAL, an AI assistant. Draft a professional reply to this email.\n"
+            "You are PureClaw, an AI assistant. Draft a professional reply to this email.\n"
             "Keep it concise, helpful, and match the tone of the original.\n"
             "Output ONLY the reply text — no subject line, no 'Dear...', just the content.\n\n"
             f"From: {em['from']}\n"
