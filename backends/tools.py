@@ -1,16 +1,26 @@
-"""Tool registry for Ollama tool calling — schemas + executors.
+"""Tool registry and shared tool loop for all backends.
 
 Provides six core tools matching Claude Code's toolset:
 bash, read_file, write_file, edit_file, glob, grep.
 
 Each tool has an OpenAI-compatible JSON schema and a Python executor
 that returns (result_string, written_files_list).
+
+The shared run_tool_loop_sync / run_tool_loop_async functions implement
+a callback-driven tool loop that works with any API backend.  Each backend
+supplies three thin adapter functions (send_request, parse_response,
+format_tool_result) and the loop handles iteration, timeouts, and file
+tracking.
 """
 
+import asyncio
+import json
 import logging
 import os
 import pathlib
 import subprocess
+import time
+from dataclasses import dataclass, field
 
 log = logging.getLogger("nexus")
 
@@ -395,3 +405,170 @@ def execute_tool(
     except Exception as e:
         log.error("Tool %s execution error: %s", name, e)
         return f"Error executing {name}: {e}", []
+
+
+# ---------------------------------------------------------------------------
+# Shared tool loop for API backends
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ToolCall:
+    """Normalised tool call — backend-agnostic."""
+    id: str            # tool_use_id (Anthropic), generated UUID (Gemini), call ID (OpenAI)
+    name: str          # function name
+    arguments: dict    # parsed arguments
+
+
+def _format_tool_status(tool_name: str, tool_input: dict) -> str:
+    """Map a tool call to a human-readable status line (local copy to avoid circular import)."""
+    if tool_name in ("Bash", "bash"):
+        cmd = tool_input.get("command", "")
+        if len(cmd) > 80:
+            cmd = cmd[:77] + "..."
+        return f"Running: {cmd}"
+    elif tool_name in ("Read", "read_file"):
+        return f"Reading: {tool_input.get('file_path', '?')}"
+    elif tool_name in ("Edit", "edit_file"):
+        return f"Editing: {tool_input.get('file_path', '?')}"
+    elif tool_name in ("Write", "write_file"):
+        return f"Writing: {tool_input.get('file_path', '?')}"
+    elif tool_name in ("Glob", "glob"):
+        return f"Searching files: {tool_input.get('pattern', '?')}"
+    elif tool_name in ("Grep", "grep"):
+        return f"Searching content: {tool_input.get('pattern', '?')}"
+    return f"Tool: {tool_name}"
+
+
+def run_tool_loop_sync(
+    messages: list,
+    send_request,
+    parse_response,
+    format_tool_result,
+    *,
+    max_iterations: int = 25,
+    tool_timeout: int = 30,
+    total_timeout: int = 300,
+    cwd: str | None = None,
+) -> dict:
+    """Generic synchronous tool loop.
+
+    Args:
+        messages: Mutable conversation list — modified in place.
+        send_request(messages) -> raw_response: Send messages to the API.
+        parse_response(raw_response) -> (text, list[ToolCall], assistant_msg):
+            Extract text, tool calls, and the assistant message to append.
+        format_tool_result(tool_name, call_id, result_str) -> dict:
+            Format a tool result as a message dict for the API.
+        max_iterations: Max tool-loop rounds.
+        tool_timeout: Per-tool bash timeout in seconds.
+        total_timeout: Wall-clock limit for the entire loop.
+        cwd: Working directory for bash/grep tools.
+
+    Returns:
+        {"result": str, "session_id": None, "written_files": list[str]}
+    """
+    written_files: list[str] = []
+    last_text = ""
+    start = time.time()
+
+    for iteration in range(max_iterations):
+        if time.time() - start > total_timeout:
+            log.warning("Tool loop: total timeout after %d iterations", iteration)
+            break
+
+        response = send_request(messages)
+        text, tool_calls, assistant_msg = parse_response(response)
+        messages.append(assistant_msg)
+
+        if text:
+            last_text = text
+
+        if not tool_calls:
+            return {
+                "result": last_text or "(empty response)",
+                "session_id": None,
+                "written_files": written_files,
+            }
+
+        for tc in tool_calls:
+            log.info("Tool call [sync]: %s(%s)", tc.name, str(tc.arguments)[:100])
+            result_str, new_files = execute_tool(
+                tc.name, tc.arguments, timeout=tool_timeout, cwd=cwd,
+            )
+            written_files.extend(new_files)
+            messages.append(format_tool_result(tc.name, tc.id, result_str))
+
+    return {
+        "result": last_text or "(max tool iterations reached)",
+        "session_id": None,
+        "written_files": written_files,
+    }
+
+
+async def run_tool_loop_async(
+    messages: list,
+    send_request,
+    parse_response,
+    format_tool_result,
+    *,
+    max_iterations: int = 25,
+    tool_timeout: int = 30,
+    total_timeout: int = 300,
+    cwd: str | None = None,
+    streaming_editor=None,
+    on_progress=None,
+) -> dict:
+    """Generic async tool loop with tool status updates.
+
+    Same interface as run_tool_loop_sync but awaits send_request and runs
+    tool execution in a thread pool.  Sends status updates via
+    streaming_editor or on_progress callbacks.
+    """
+    written_files: list[str] = []
+    last_text = ""
+    start = time.time()
+
+    for iteration in range(max_iterations):
+        if time.time() - start > total_timeout:
+            log.warning("Tool loop async: total timeout after %d iterations", iteration)
+            break
+
+        response = await send_request(messages)
+        text, tool_calls, assistant_msg = parse_response(response)
+        messages.append(assistant_msg)
+
+        if text:
+            last_text = text
+
+        if not tool_calls:
+            return {
+                "result": last_text or "(empty response)",
+                "session_id": None,
+                "written_files": written_files,
+            }
+
+        for tc in tool_calls:
+            # Show tool status
+            status = _format_tool_status(tc.name, tc.arguments)
+            if streaming_editor:
+                await streaming_editor.add_tool_status(status)
+            elif on_progress:
+                await on_progress(status)
+
+            log.info("Tool call [async]: %s(%s)", tc.name, str(tc.arguments)[:100])
+
+            # Execute in thread pool to avoid blocking
+            result_str, new_files = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda n=tc.name, a=tc.arguments: execute_tool(
+                    n, a, timeout=tool_timeout, cwd=cwd,
+                ),
+            )
+            written_files.extend(new_files)
+            messages.append(format_tool_result(tc.name, tc.id, result_str))
+
+    return {
+        "result": last_text or "(max tool iterations reached)",
+        "session_id": None,
+        "written_files": written_files,
+    }

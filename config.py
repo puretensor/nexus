@@ -28,6 +28,11 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:235b")
 OLLAMA_TOOLS_ENABLED = os.environ.get("OLLAMA_TOOLS_ENABLED", "true").lower() == "true"
 OLLAMA_TOOL_MAX_ITER = int(os.environ.get("OLLAMA_TOOL_MAX_ITER", "25"))
 OLLAMA_TOOL_TIMEOUT = int(os.environ.get("OLLAMA_TOOL_TIMEOUT", "30"))
+
+# Tool use for API backends (all Tier 2 backends)
+API_TOOLS_ENABLED = os.environ.get("API_TOOLS_ENABLED", "true").lower() == "true"
+API_TOOL_MAX_ITER = int(os.environ.get("API_TOOL_MAX_ITER", "25"))
+API_TOOL_TIMEOUT = int(os.environ.get("API_TOOL_TIMEOUT", "30"))
 OPENAI_COMPAT_URL = os.environ.get("OPENAI_COMPAT_URL", "")
 OPENAI_COMPAT_KEY = os.environ.get("OPENAI_COMPAT_KEY", "")
 OPENAI_COMPAT_MODEL = os.environ.get("OPENAI_COMPAT_MODEL", "gpt-4o")

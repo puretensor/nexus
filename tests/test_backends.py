@@ -716,6 +716,19 @@ class TestAnthropicAPIBackend:
             backend = AnthropicAPIBackend()
             assert backend.supports_streaming is True
 
+    def test_supports_tools_default(self):
+        with patch("config.ANTHROPIC_API_KEY", "test-key"):
+            from backends.anthropic_api import AnthropicAPIBackend
+            backend = AnthropicAPIBackend()
+            assert backend.supports_tools is True
+
+    def test_supports_tools_disabled(self):
+        with patch("config.ANTHROPIC_API_KEY", "test-key"), \
+             patch("config.API_TOOLS_ENABLED", False):
+            from backends.anthropic_api import AnthropicAPIBackend
+            backend = AnthropicAPIBackend()
+            assert backend.supports_tools is False
+
 
 # ---------------------------------------------------------------------------
 # OpenAICompatBackend
@@ -780,6 +793,23 @@ class TestOpenAICompatBackend:
                 req = mock_urlopen.call_args[0][0]
                 assert req.get_header("Authorization") == "Bearer sk-test-key"
 
+    def test_supports_tools_default(self):
+        with patch("config.OPENAI_COMPAT_URL", "http://localhost:8080"), \
+             patch("config.OPENAI_COMPAT_KEY", ""), \
+             patch("config.OPENAI_COMPAT_MODEL", "gpt-4o"):
+            from backends.openai_compat import OpenAICompatBackend
+            backend = OpenAICompatBackend()
+            assert backend.supports_tools is True
+
+    def test_supports_tools_disabled(self):
+        with patch("config.OPENAI_COMPAT_URL", "http://localhost:8080"), \
+             patch("config.OPENAI_COMPAT_KEY", ""), \
+             patch("config.OPENAI_COMPAT_MODEL", "gpt-4o"), \
+             patch("config.API_TOOLS_ENABLED", False):
+            from backends.openai_compat import OpenAICompatBackend
+            backend = OpenAICompatBackend()
+            assert backend.supports_tools is False
+
 
 # ---------------------------------------------------------------------------
 # GeminiAPIBackend
@@ -815,9 +845,17 @@ class TestGeminiAPIBackend:
             backend = GeminiAPIBackend()
             assert backend.supports_streaming is True
 
-    def test_no_tools(self):
+    def test_supports_tools_default(self):
         with patch("config.GEMINI_API_KEY", "test-key"), \
              patch("config.GEMINI_API_MODEL", "gemini-2.5-flash"):
+            from backends.gemini_api import GeminiAPIBackend
+            backend = GeminiAPIBackend()
+            assert backend.supports_tools is True
+
+    def test_supports_tools_disabled(self):
+        with patch("config.GEMINI_API_KEY", "test-key"), \
+             patch("config.GEMINI_API_MODEL", "gemini-2.5-flash"), \
+             patch("config.API_TOOLS_ENABLED", False):
             from backends.gemini_api import GeminiAPIBackend
             backend = GeminiAPIBackend()
             assert backend.supports_tools is False
@@ -905,3 +943,742 @@ class TestGeminiAPIBackend:
                 result = backend.call_sync("test")
 
             assert "error" in result["result"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Shared tool infrastructure tests
+# ---------------------------------------------------------------------------
+
+class TestToolInfra:
+
+    def test_toolcall_dataclass(self):
+        """ToolCall should hold id, name, arguments."""
+        from backends.tools import ToolCall
+        tc = ToolCall(id="tc-1", name="bash", arguments={"command": "echo hi"})
+        assert tc.id == "tc-1"
+        assert tc.name == "bash"
+        assert tc.arguments == {"command": "echo hi"}
+
+    def test_schema_conversion_anthropic(self):
+        """OpenAI schemas should convert to Anthropic format."""
+        from backends.anthropic_api import _convert_schemas_to_anthropic
+        from backends.tools import TOOL_SCHEMAS
+        result = _convert_schemas_to_anthropic(TOOL_SCHEMAS)
+        assert len(result) == 6
+        assert result[0]["name"] == "bash"
+        assert "input_schema" in result[0]
+        assert "type" not in result[0]  # no "type": "function" wrapper
+
+    def test_schema_conversion_gemini(self):
+        """OpenAI schemas should convert to Gemini functionDeclarations format."""
+        from backends.gemini_api import _convert_schemas_to_gemini
+        from backends.tools import TOOL_SCHEMAS
+        result = _convert_schemas_to_gemini(TOOL_SCHEMAS)
+        assert len(result) == 6
+        assert result[0]["name"] == "bash"
+        assert "parameters" in result[0]
+        assert "input_schema" not in result[0]
+
+    def test_format_tool_status(self):
+        """_format_tool_status should produce readable status lines."""
+        from backends.tools import _format_tool_status
+        assert "echo" in _format_tool_status("bash", {"command": "echo hi"})
+        assert "Reading" in _format_tool_status("read_file", {"file_path": "/tmp/x"})
+        assert "Writing" in _format_tool_status("write_file", {"file_path": "/tmp/x"})
+        assert "Editing" in _format_tool_status("edit_file", {"file_path": "/tmp/x"})
+        assert "Searching files" in _format_tool_status("glob", {"pattern": "*.py"})
+        assert "Searching content" in _format_tool_status("grep", {"pattern": "foo"})
+
+
+# ---------------------------------------------------------------------------
+# OpenAI-compat tool-use tests
+# ---------------------------------------------------------------------------
+
+class TestOpenAICompatToolUse:
+
+    def _make_backend(self):
+        with patch("config.OPENAI_COMPAT_URL", "http://localhost:8080"), \
+             patch("config.OPENAI_COMPAT_KEY", "test-key"), \
+             patch("config.OPENAI_COMPAT_MODEL", "gpt-4o"):
+            from backends.openai_compat import OpenAICompatBackend
+            return OpenAICompatBackend()
+
+    def test_call_sync_sends_tools(self):
+        """call_sync should include tools in payload when enabled."""
+        backend = self._make_backend()
+
+        response_data = json.dumps({
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]
+        }).encode()
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = response_data
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("backends.openai_compat.urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            backend.call_sync("test")
+            req = mock_urlopen.call_args[0][0]
+            payload = json.loads(req.data.decode())
+            assert "tools" in payload
+            assert len(payload["tools"]) == 6
+
+    def test_call_sync_no_tools_when_disabled(self):
+        """call_sync should not include tools when disabled."""
+        with patch("config.OPENAI_COMPAT_URL", "http://localhost:8080"), \
+             patch("config.OPENAI_COMPAT_KEY", "test-key"), \
+             patch("config.OPENAI_COMPAT_MODEL", "gpt-4o"), \
+             patch("config.API_TOOLS_ENABLED", False):
+            from backends.openai_compat import OpenAICompatBackend
+            backend = OpenAICompatBackend()
+
+        response_data = json.dumps({
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]
+        }).encode()
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = response_data
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("backends.openai_compat.urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            backend.call_sync("test")
+            req = mock_urlopen.call_args[0][0]
+            payload = json.loads(req.data.decode())
+            assert "tools" not in payload
+
+    def test_parse_response_text_only(self):
+        """_parse_response should handle text-only responses."""
+        backend = self._make_backend()
+        response = {
+            "choices": [{"message": {"content": "Hello"}, "finish_reason": "stop"}]
+        }
+        text, tool_calls, msg = backend._parse_response(response)
+        assert text == "Hello"
+        assert tool_calls == []
+        assert msg["role"] == "assistant"
+
+    def test_parse_response_with_tool_calls(self):
+        """_parse_response should extract tool calls."""
+        backend = self._make_backend()
+        response = {
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "bash", "arguments": '{"command": "ls"}'},
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }]
+        }
+        text, tool_calls, msg = backend._parse_response(response)
+        assert len(tool_calls) == 1
+        assert tool_calls[0].name == "bash"
+        assert tool_calls[0].arguments == {"command": "ls"}
+        assert tool_calls[0].id == "call_1"
+        assert "tool_calls" in msg
+
+    def test_format_tool_result(self):
+        """_format_tool_result should produce correct message format."""
+        from backends.openai_compat import OpenAICompatBackend
+        result = OpenAICompatBackend._format_tool_result("bash", "call_1", "output")
+        assert result["role"] == "tool"
+        assert result["tool_call_id"] == "call_1"
+        assert result["content"] == "output"
+
+    def test_call_sync_tool_loop(self):
+        """call_sync should execute tool calls and loop."""
+        backend = self._make_backend()
+
+        tool_response = json.dumps({
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "bash", "arguments": '{"command": "echo tool_test"}'},
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }]
+        }).encode()
+
+        final_response = json.dumps({
+            "choices": [{"message": {"content": "The result is: tool_test"}, "finish_reason": "stop"}]
+        }).encode()
+
+        call_count = [0]
+        def mock_urlopen(req, **kwargs):
+            mock_resp = MagicMock()
+            if call_count[0] == 0:
+                mock_resp.read.return_value = tool_response
+            else:
+                mock_resp.read.return_value = final_response
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            call_count[0] += 1
+            return mock_resp
+
+        with patch("backends.openai_compat.urllib.request.urlopen", side_effect=mock_urlopen):
+            result = backend.call_sync("run echo tool_test")
+
+        assert call_count[0] == 2
+        assert result["result"] == "The result is: tool_test"
+
+    def test_call_sync_written_files_tracked(self):
+        """call_sync should track files written by write_file tool."""
+        import tempfile
+        backend = self._make_backend()
+
+        tmpdir = tempfile.mkdtemp()
+        target_path = f"{tmpdir}/test_output.txt"
+
+        tool_response = json.dumps({
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "write_file",
+                            "arguments": json.dumps({"file_path": target_path, "content": "hello"}),
+                        },
+                    }],
+                },
+                "finish_reason": "tool_calls",
+            }]
+        }).encode()
+
+        final_response = json.dumps({
+            "choices": [{"message": {"content": "Done"}, "finish_reason": "stop"}]
+        }).encode()
+
+        call_count = [0]
+        def mock_urlopen(req, **kwargs):
+            mock_resp = MagicMock()
+            if call_count[0] == 0:
+                mock_resp.read.return_value = tool_response
+            else:
+                mock_resp.read.return_value = final_response
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            call_count[0] += 1
+            return mock_resp
+
+        with patch("backends.openai_compat.urllib.request.urlopen", side_effect=mock_urlopen):
+            result = backend.call_sync("write hello")
+
+        assert target_path in result.get("written_files", [])
+
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Anthropic API tool-use tests
+# ---------------------------------------------------------------------------
+
+class TestAnthropicAPIToolUse:
+
+    def _make_backend(self):
+        with patch("config.ANTHROPIC_API_KEY", "test-key"):
+            from backends.anthropic_api import AnthropicAPIBackend
+            return AnthropicAPIBackend()
+
+    def test_get_tools_returns_anthropic_format(self):
+        """_get_tools should return Anthropic-format schemas."""
+        backend = self._make_backend()
+        tools = backend._get_tools()
+        assert tools is not None
+        assert len(tools) == 6
+        assert tools[0]["name"] == "bash"
+        assert "input_schema" in tools[0]
+        assert "type" not in tools[0]  # not the OpenAI wrapper
+
+    def test_get_tools_disabled(self):
+        """_get_tools should return None when tools disabled."""
+        with patch("config.ANTHROPIC_API_KEY", "test-key"), \
+             patch("config.API_TOOLS_ENABLED", False):
+            from backends.anthropic_api import AnthropicAPIBackend
+            backend = AnthropicAPIBackend()
+        assert backend._get_tools() is None
+
+    def test_parse_response_text_only(self):
+        """_parse_response should handle text-only responses."""
+        backend = self._make_backend()
+        mock_response = MagicMock()
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "Hello from Claude"
+        mock_response.content = [text_block]
+
+        text, tool_calls, msg = backend._parse_response(mock_response)
+        assert text == "Hello from Claude"
+        assert tool_calls == []
+        assert msg["role"] == "assistant"
+
+    def test_parse_response_with_tool_use(self):
+        """_parse_response should extract tool_use blocks."""
+        backend = self._make_backend()
+        mock_response = MagicMock()
+
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "Let me check"
+
+        tool_block = MagicMock()
+        tool_block.type = "tool_use"
+        tool_block.id = "toolu_123"
+        tool_block.name = "bash"
+        tool_block.input = {"command": "ls"}
+
+        mock_response.content = [text_block, tool_block]
+
+        text, tool_calls, msg = backend._parse_response(mock_response)
+        assert "Let me check" in text
+        assert len(tool_calls) == 1
+        assert tool_calls[0].name == "bash"
+        assert tool_calls[0].id == "toolu_123"
+        assert tool_calls[0].arguments == {"command": "ls"}
+
+    def test_format_tool_result(self):
+        """_format_tool_result should produce Anthropic tool_result format."""
+        from backends.anthropic_api import AnthropicAPIBackend
+        result = AnthropicAPIBackend._format_tool_result("bash", "toolu_123", "file.txt")
+        assert result["role"] == "user"
+        assert result["content"][0]["type"] == "tool_result"
+        assert result["content"][0]["tool_use_id"] == "toolu_123"
+        assert result["content"][0]["content"] == "file.txt"
+
+    def test_call_sync_tool_loop(self):
+        """call_sync should execute tool calls via the shared tool loop."""
+        backend = self._make_backend()
+
+        # First response: tool_use
+        tool_response = MagicMock()
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = ""
+        tool_block = MagicMock()
+        tool_block.type = "tool_use"
+        tool_block.id = "toolu_1"
+        tool_block.name = "bash"
+        tool_block.input = {"command": "echo test"}
+        tool_response.content = [text_block, tool_block]
+        tool_response.stop_reason = "tool_use"
+
+        # Second response: final text
+        final_response = MagicMock()
+        final_text = MagicMock()
+        final_text.type = "text"
+        final_text.text = "Result: test"
+        final_response.content = [final_text]
+        final_response.stop_reason = "end_turn"
+
+        call_count = [0]
+        def mock_create(**kwargs):
+            if call_count[0] == 0:
+                call_count[0] += 1
+                return tool_response
+            call_count[0] += 1
+            return final_response
+
+        mock_client = MagicMock()
+        mock_client.messages.create = mock_create
+
+        with patch.object(backend, "_get_client", return_value=mock_client):
+            result = backend.call_sync("run echo test")
+
+        assert call_count[0] == 2
+        assert result["result"] == "Result: test"
+
+    def test_call_sync_sends_tools_in_payload(self):
+        """call_sync should pass tools to the API when enabled."""
+        backend = self._make_backend()
+
+        text_response = MagicMock()
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "ok"
+        text_response.content = [text_block]
+
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = text_response
+
+        with patch.object(backend, "_get_client", return_value=mock_client):
+            backend.call_sync("test")
+            call_kwargs = mock_client.messages.create.call_args[1]
+            assert "tools" in call_kwargs
+            assert len(call_kwargs["tools"]) == 6
+            assert call_kwargs["max_tokens"] == 16384  # higher for tool use
+
+    def test_call_sync_no_tools_when_disabled(self):
+        """call_sync should not pass tools when disabled."""
+        with patch("config.ANTHROPIC_API_KEY", "test-key"), \
+             patch("config.API_TOOLS_ENABLED", False):
+            from backends.anthropic_api import AnthropicAPIBackend
+            backend = AnthropicAPIBackend()
+
+        text_response = MagicMock()
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "ok"
+        text_response.content = [text_block]
+
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = text_response
+
+        with patch.object(backend, "_get_client", return_value=mock_client):
+            backend.call_sync("test")
+            call_kwargs = mock_client.messages.create.call_args[1]
+            assert "tools" not in call_kwargs
+            assert call_kwargs["max_tokens"] == 4096  # normal for no tools
+
+
+# ---------------------------------------------------------------------------
+# Gemini API tool-use tests
+# ---------------------------------------------------------------------------
+
+class TestGeminiAPIToolUse:
+
+    def _make_backend(self):
+        with patch("config.GEMINI_API_KEY", "test-key"), \
+             patch("config.GEMINI_API_MODEL", "gemini-2.5-flash"):
+            from backends.gemini_api import GeminiAPIBackend
+            return GeminiAPIBackend()
+
+    def test_get_tools_payload(self):
+        """_get_tools_payload should return Gemini functionDeclarations format."""
+        backend = self._make_backend()
+        tools = backend._get_tools_payload()
+        assert tools is not None
+        assert len(tools) == 1
+        decls = tools[0]["functionDeclarations"]
+        assert len(decls) == 6
+        assert decls[0]["name"] == "bash"
+        assert "parameters" in decls[0]
+
+    def test_get_tools_payload_disabled(self):
+        """_get_tools_payload should return None when tools disabled."""
+        with patch("config.GEMINI_API_KEY", "test-key"), \
+             patch("config.GEMINI_API_MODEL", "gemini-2.5-flash"), \
+             patch("config.API_TOOLS_ENABLED", False):
+            from backends.gemini_api import GeminiAPIBackend
+            backend = GeminiAPIBackend()
+        assert backend._get_tools_payload() is None
+
+    def test_parse_response_text_only(self):
+        """_parse_response should handle text-only responses."""
+        from backends.gemini_api import GeminiAPIBackend
+        response = {
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": "Hello from Gemini"}],
+                    "role": "model",
+                }
+            }]
+        }
+        text, tool_calls, msg = GeminiAPIBackend._parse_response(response)
+        assert text == "Hello from Gemini"
+        assert tool_calls == []
+        assert msg["role"] == "model"
+
+    def test_parse_response_with_function_call(self):
+        """_parse_response should extract functionCall parts."""
+        from backends.gemini_api import GeminiAPIBackend
+        response = {
+            "candidates": [{
+                "content": {
+                    "parts": [
+                        {"functionCall": {"name": "bash", "args": {"command": "ls"}}},
+                    ],
+                    "role": "model",
+                }
+            }]
+        }
+        text, tool_calls, msg = GeminiAPIBackend._parse_response(response)
+        assert len(tool_calls) == 1
+        assert tool_calls[0].name == "bash"
+        assert tool_calls[0].arguments == {"command": "ls"}
+        assert tool_calls[0].id  # should be a UUID string
+
+    def test_parse_response_mixed(self):
+        """_parse_response should handle text + functionCall mixed."""
+        from backends.gemini_api import GeminiAPIBackend
+        response = {
+            "candidates": [{
+                "content": {
+                    "parts": [
+                        {"text": "Let me check: "},
+                        {"functionCall": {"name": "read_file", "args": {"file_path": "/tmp/x"}}},
+                    ],
+                    "role": "model",
+                }
+            }]
+        }
+        text, tool_calls, msg = GeminiAPIBackend._parse_response(response)
+        assert "Let me check" in text
+        assert len(tool_calls) == 1
+        assert tool_calls[0].name == "read_file"
+
+    def test_format_tool_result(self):
+        """_format_tool_result should produce Gemini functionResponse format."""
+        from backends.gemini_api import GeminiAPIBackend
+        result = GeminiAPIBackend._format_tool_result("bash", "any-id", "output text")
+        assert result["role"] == "user"
+        assert result["parts"][0]["functionResponse"]["name"] == "bash"
+        assert result["parts"][0]["functionResponse"]["response"]["result"] == "output text"
+
+    def test_call_sync_sends_tools(self):
+        """call_sync should include tools in payload when enabled."""
+        backend = self._make_backend()
+
+        response_data = json.dumps({
+            "candidates": [{
+                "content": {"parts": [{"text": "ok"}], "role": "model"}
+            }]
+        }).encode()
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = response_data
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("backends.gemini_api.urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            backend.call_sync("test")
+            req = mock_urlopen.call_args[0][0]
+            payload = json.loads(req.data.decode())
+            assert "tools" in payload
+            assert "functionDeclarations" in payload["tools"][0]
+            assert len(payload["tools"][0]["functionDeclarations"]) == 6
+
+    def test_call_sync_no_tools_when_disabled(self):
+        """call_sync should not include tools when disabled."""
+        with patch("config.GEMINI_API_KEY", "test-key"), \
+             patch("config.GEMINI_API_MODEL", "gemini-2.5-flash"), \
+             patch("config.API_TOOLS_ENABLED", False):
+            from backends.gemini_api import GeminiAPIBackend
+            backend = GeminiAPIBackend()
+
+        response_data = json.dumps({
+            "candidates": [{
+                "content": {"parts": [{"text": "ok"}], "role": "model"}
+            }]
+        }).encode()
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = response_data
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("backends.gemini_api.urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            backend.call_sync("test")
+            req = mock_urlopen.call_args[0][0]
+            payload = json.loads(req.data.decode())
+            assert "tools" not in payload
+
+    def test_call_sync_tool_loop(self):
+        """call_sync should execute functionCall and loop."""
+        backend = self._make_backend()
+
+        tool_response_data = json.dumps({
+            "candidates": [{
+                "content": {
+                    "parts": [{"functionCall": {"name": "bash", "args": {"command": "echo gemini_test"}}}],
+                    "role": "model",
+                }
+            }]
+        }).encode()
+
+        final_response_data = json.dumps({
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": "The result is: gemini_test"}],
+                    "role": "model",
+                }
+            }]
+        }).encode()
+
+        call_count = [0]
+        def mock_urlopen(req, **kwargs):
+            mock_resp = MagicMock()
+            if call_count[0] == 0:
+                mock_resp.read.return_value = tool_response_data
+            else:
+                mock_resp.read.return_value = final_response_data
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            call_count[0] += 1
+            return mock_resp
+
+        with patch("backends.gemini_api.urllib.request.urlopen", side_effect=mock_urlopen):
+            result = backend.call_sync("run echo gemini_test")
+
+        assert call_count[0] == 2
+        assert result["result"] == "The result is: gemini_test"
+
+    def test_call_sync_multi_turn_contents(self):
+        """call_sync should build multi-turn contents with user/model/user roles."""
+        backend = self._make_backend()
+
+        tool_response_data = json.dumps({
+            "candidates": [{
+                "content": {
+                    "parts": [{"functionCall": {"name": "bash", "args": {"command": "echo x"}}}],
+                    "role": "model",
+                }
+            }]
+        }).encode()
+
+        final_response_data = json.dumps({
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": "done"}],
+                    "role": "model",
+                }
+            }]
+        }).encode()
+
+        payloads_sent = []
+        call_count = [0]
+        def mock_urlopen(req, **kwargs):
+            payloads_sent.append(json.loads(req.data.decode()))
+            mock_resp = MagicMock()
+            if call_count[0] == 0:
+                mock_resp.read.return_value = tool_response_data
+            else:
+                mock_resp.read.return_value = final_response_data
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            call_count[0] += 1
+            return mock_resp
+
+        with patch("backends.gemini_api.urllib.request.urlopen", side_effect=mock_urlopen):
+            backend.call_sync("test")
+
+        # Second request should have 3 items in contents: user, model (functionCall), user (functionResponse)
+        second_payload = payloads_sent[1]
+        contents = second_payload["contents"]
+        assert len(contents) == 3
+        assert contents[0]["role"] == "user"       # original prompt
+        assert contents[1]["role"] == "model"       # functionCall
+        assert contents[2]["role"] == "user"        # functionResponse
+        assert "functionResponse" in contents[2]["parts"][0]
+
+    def test_call_sync_written_files_tracked(self):
+        """call_sync should track files written by write_file tool."""
+        import tempfile
+        backend = self._make_backend()
+
+        tmpdir = tempfile.mkdtemp()
+        target_path = f"{tmpdir}/test_output.txt"
+
+        tool_response_data = json.dumps({
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "functionCall": {
+                            "name": "write_file",
+                            "args": {"file_path": target_path, "content": "hello"},
+                        }
+                    }],
+                    "role": "model",
+                }
+            }]
+        }).encode()
+
+        final_response_data = json.dumps({
+            "candidates": [{
+                "content": {"parts": [{"text": "Done"}], "role": "model"}
+            }]
+        }).encode()
+
+        call_count = [0]
+        def mock_urlopen(req, **kwargs):
+            mock_resp = MagicMock()
+            if call_count[0] == 0:
+                mock_resp.read.return_value = tool_response_data
+            else:
+                mock_resp.read.return_value = final_response_data
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            call_count[0] += 1
+            return mock_resp
+
+        with patch("backends.gemini_api.urllib.request.urlopen", side_effect=mock_urlopen):
+            result = backend.call_sync("write hello")
+
+        assert target_path in result.get("written_files", [])
+
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Shared tool loop tests
+# ---------------------------------------------------------------------------
+
+class TestRunToolLoopSync:
+
+    def test_no_tool_calls_returns_immediately(self):
+        """Should return text when no tool calls in first response."""
+        from backends.tools import run_tool_loop_sync
+
+        messages = [{"role": "user", "content": "hello"}]
+
+        def send(msgs):
+            return {"text": "Hi there"}
+
+        def parse(resp):
+            return resp["text"], [], {"role": "assistant", "content": resp["text"]}
+
+        def fmt(name, cid, result):
+            return {"role": "tool", "content": result}
+
+        result = run_tool_loop_sync(messages, send, parse, fmt)
+        assert result["result"] == "Hi there"
+        assert result["written_files"] == []
+
+    def test_tool_loop_executes_and_continues(self):
+        """Should execute tools and continue to next iteration."""
+        from backends.tools import run_tool_loop_sync, ToolCall
+
+        messages = [{"role": "user", "content": "test"}]
+        call_count = [0]
+
+        def send(msgs):
+            call_count[0] += 1
+            return {"iteration": call_count[0]}
+
+        def parse(resp):
+            if resp["iteration"] == 1:
+                tc = ToolCall(id="tc1", name="bash", arguments={"command": "echo hello"})
+                return "", [tc], {"role": "assistant", "content": ""}
+            return "Final answer", [], {"role": "assistant", "content": "Final answer"}
+
+        def fmt(name, cid, result):
+            return {"role": "tool", "content": result}
+
+        result = run_tool_loop_sync(messages, send, parse, fmt)
+        assert call_count[0] == 2
+        assert result["result"] == "Final answer"
+
+    def test_max_iterations_respected(self):
+        """Should stop at max_iterations."""
+        from backends.tools import run_tool_loop_sync, ToolCall
+
+        messages = [{"role": "user", "content": "test"}]
+
+        def send(msgs):
+            return {}
+
+        def parse(resp):
+            tc = ToolCall(id="tc1", name="bash", arguments={"command": "echo loop"})
+            return "looping", [tc], {"role": "assistant", "content": "looping"}
+
+        def fmt(name, cid, result):
+            return {"role": "tool", "content": result}
+
+        result = run_tool_loop_sync(messages, send, parse, fmt, max_iterations=3)
+        assert "looping" in result["result"] or "max" in result["result"].lower()

@@ -16,9 +16,9 @@ PureClaw is a multi-engine agentic framework. Swap between any backend with a si
 | Backend | Type | Provider | Tool Use | Streaming | Cost |
 |---------|------|----------|----------|-----------|------|
 | `ollama` | Local | Any GGUF model | 6 built-in tools | Yes | Free |
-| `anthropic_api` | API | Anthropic | No | Yes | Per-token |
-| `gemini_api` | API | Google Gemini | No | Yes | Per-token |
-| `openai_compat` | API | ChatGPT, DeepSeek, Kimi 2.5, GLM 5, Grok, Mistral, vLLM | No | Yes | Per-token |
+| `anthropic_api` | API | Anthropic | 6 built-in tools | Yes | Per-token |
+| `gemini_api` | API | Google Gemini | 6 built-in tools | Yes | Per-token |
+| `openai_compat` | API | ChatGPT, DeepSeek, Kimi 2.5, GLM 5, Grok, Mistral, vLLM | 6 built-in tools | Yes | Per-token |
 | `claude_code` | CLI | Claude Code | Full agentic | Yes | Subscription |
 | `gemini_cli` | CLI | Gemini CLI | Full agentic | Yes | Subscription |
 | `codex_cli` | CLI | Codex CLI | Full agentic | Yes | Subscription |
@@ -26,7 +26,7 @@ PureClaw is a multi-engine agentic framework. Swap between any backend with a si
 **Three tiers:**
 
 - **Tier 1 -- Local-First:** Ollama runs on your hardware. Free, private, with 6 tools included (bash, read, write, edit, glob, grep). Your data never leaves your machine.
-- **Tier 2 -- API:** Anthropic, Gemini, and any OpenAI-compatible provider. Pay-per-token, no subscription. Pure HTTP -- stdlib `urllib` for sync, `aiohttp` for async streaming.
+- **Tier 2 -- API:** Anthropic, Gemini, and any OpenAI-compatible provider. Pay-per-token, no subscription, 6 built-in tools (same as Tier 1). Pure HTTP -- stdlib `urllib` for sync, `aiohttp` for async streaming.
 - **Tier 3 -- CLI:** Claude Code, Gemini CLI, Codex CLI. Subscription-based, full agentic tool use delegated to the CLI binary.
 
 ### Switching Engines
@@ -181,7 +181,7 @@ nexus/
 |     +-- ollama.py             # Ollama backend with tool use
 |     +-- gemini_cli.py         # Gemini CLI backend
 |     +-- codex_cli.py          # Codex CLI backend
-|     +-- tools.py              # Tool definitions for Ollama
+|     +-- tools.py              # Tool definitions + shared tool loop for all backends
 |     +-- __init__.py           # Backend factory (lazy singleton)
 |
 +-- channels/
