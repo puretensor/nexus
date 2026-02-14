@@ -3,7 +3,7 @@
 **Pure, Simple, and Secure.**
 Your AI agent, your hardware, your rules.
 
-[pureclaw.ai](https://pureclaw.ai) | [GitHub](https://github.com/puretensor/nexus)
+[pureclaw.ai](https://pureclaw.ai) | [GitHub](https://github.com/puretensor/PureClaw)
 
 ---
 
@@ -143,8 +143,8 @@ Instant structured responses that bypass the engine for speed:
 ## Quick Start
 
 ```bash
-git clone https://github.com/puretensor/nexus.git
-cd nexus
+git clone https://github.com/puretensor/PureClaw.git
+cd PureClaw
 pip install -r requirements.txt
 cp .env.example .env
 # Edit .env: set TELEGRAM_BOT_TOKEN, AUTHORIZED_USER_ID, and choose your engine
