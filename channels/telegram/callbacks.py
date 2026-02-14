@@ -91,6 +91,36 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
+    if data.startswith("backend:"):
+        parts = data.split(":")
+        if len(parts) >= 3:
+            backend_name = parts[1]
+            model_name = parts[2]
+
+            import config
+            from backends import reset_backend
+            from db import update_model
+            from engine import get_model_display
+
+            chat_id = update.effective_chat.id
+
+            # Switch backend if needed
+            if config.ENGINE_BACKEND != backend_name:
+                config.ENGINE_BACKEND = backend_name
+                reset_backend()
+
+            # Update model in session
+            update_model(chat_id, model_name)
+
+            display = get_model_display(model_name)
+            if backend_name == "ollama":
+                label = f"{display} (local, with tools)"
+            else:
+                label = display
+
+            await query.message.edit_text(f"Switched to {label}.")
+        return
+
     if data.startswith("infra:"):
         parts = data.split(":")
         action = parts[1] if len(parts) > 1 else ""

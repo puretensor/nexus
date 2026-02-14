@@ -24,7 +24,7 @@ WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:9000/transcribe")
 ENGINE_BACKEND = os.environ.get("ENGINE_BACKEND", "claude_code")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:30b-a3b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:235b")
 OLLAMA_TOOLS_ENABLED = os.environ.get("OLLAMA_TOOLS_ENABLED", "true").lower() == "true"
 OLLAMA_TOOL_MAX_ITER = int(os.environ.get("OLLAMA_TOOL_MAX_ITER", "25"))
 OLLAMA_TOOL_TIMEOUT = int(os.environ.get("OLLAMA_TOOL_TIMEOUT", "30"))

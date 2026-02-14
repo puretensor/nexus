@@ -138,6 +138,12 @@ async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @authorized
 async def cmd_opus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    # If on a non-Claude backend, switch back to claude_code
+    import config
+    from backends import reset_backend
+    if config.ENGINE_BACKEND != "claude_code":
+        config.ENGINE_BACKEND = "claude_code"
+        reset_backend()
     update_model(chat_id, "opus")
     await update.message.reply_text(f"Switched to {get_model_display('opus')}.")
 
@@ -145,8 +151,63 @@ async def cmd_opus(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @authorized
 async def cmd_sonnet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    # If on a non-Claude backend, switch back to claude_code
+    import config
+    from backends import reset_backend
+    if config.ENGINE_BACKEND != "claude_code":
+        config.ENGINE_BACKEND = "claude_code"
+        reset_backend()
     update_model(chat_id, "sonnet")
     await update.message.reply_text(f"Switched to {get_model_display('sonnet')}.")
+
+
+@authorized
+async def cmd_ollama(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Switch to Ollama backend (Qwen 3 235B local)."""
+    chat_id = update.effective_chat.id
+    import config
+    from backends import reset_backend
+    if config.ENGINE_BACKEND != "ollama":
+        config.ENGINE_BACKEND = "ollama"
+        reset_backend()
+    update_model(chat_id, "sonnet")  # model name doesn't matter for ollama
+    await update.message.reply_text(f"Switched to {get_model_display('sonnet')} (local, with tools).")
+
+
+@authorized
+async def cmd_backend(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show backend selection keyboard."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    import config
+
+    # Mark the current backend
+    current = config.ENGINE_BACKEND
+    session = get_session(update.effective_chat.id)
+    current_model = session["model"] if session else "sonnet"
+
+    def label(text, is_active):
+        return f"\u2713 {text}" if is_active else text
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                label("Sonnet 4.5", current == "claude_code" and current_model == "sonnet"),
+                callback_data="backend:claude_code:sonnet",
+            ),
+            InlineKeyboardButton(
+                label("Opus 4.6", current == "claude_code" and current_model == "opus"),
+                callback_data="backend:claude_code:opus",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                label(f"Qwen 3 235B (local)", current == "ollama"),
+                callback_data="backend:ollama:sonnet",
+            ),
+        ],
+    ])
+
+    await update.message.reply_text("Select backend:", reply_markup=keyboard)
 
 
 @authorized
@@ -202,8 +263,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/session delete <name> — Delete a session\n"
         "/history — List archived sessions\n"
         "/resume <n> — Restore archived session by number\n"
-        "/opus — Switch to primary model\n"
-        "/sonnet — Switch to default model\n"
+        "/opus — Switch to Opus 4\\.6\n"
+        "/sonnet — Switch to Sonnet 4\\.5\n"
+        "/ollama — Switch to Qwen 3 235B \\(local\\)\n"
+        "/backend — Choose backend \\(tap to select\\)\n"
         "/voice \\[on|off] — Toggle voice responses\n"
         "/status — Show current session info\n\n"
         "*Scheduled Tasks & Reminders*\n"
