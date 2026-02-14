@@ -1,7 +1,13 @@
-"""Ollama backend — local models via HTTP API."""
+"""Ollama backend — local models via /api/chat with tool calling support.
+
+Supports OpenAI-compatible function calling for models that support it
+(Qwen 3, Llama 3.1+, Mistral, etc.). Falls back to plain chat when
+tools are disabled or the model doesn't emit tool calls.
+"""
 
 import json
 import logging
+import time
 import urllib.request
 import urllib.error
 
@@ -16,12 +22,34 @@ _MODEL_MAP = {
 
 
 class OllamaBackend:
-    """Backend that calls a local Ollama instance via HTTP."""
+    """Backend that calls a local Ollama instance via HTTP with tool support."""
 
     def __init__(self):
         from config import OLLAMA_URL, OLLAMA_MODEL
         self._base_url = OLLAMA_URL.rstrip("/")
         self._default_model = OLLAMA_MODEL
+
+        # Tool calling config — import with fallbacks for when config hasn't been updated yet
+        try:
+            from config import OLLAMA_TOOLS_ENABLED
+            self._tools_enabled = OLLAMA_TOOLS_ENABLED
+        except ImportError:
+            self._tools_enabled = True
+        try:
+            from config import OLLAMA_TOOL_MAX_ITER
+            self._max_iterations = OLLAMA_TOOL_MAX_ITER
+        except ImportError:
+            self._max_iterations = 25
+        try:
+            from config import OLLAMA_TOOL_TIMEOUT
+            self._tool_timeout = OLLAMA_TOOL_TIMEOUT
+        except ImportError:
+            self._tool_timeout = 30
+        try:
+            from config import CLAUDE_CWD
+            self._cwd = CLAUDE_CWD
+        except ImportError:
+            self._cwd = "/home/puretensorai"
 
     @property
     def name(self) -> str:
@@ -36,7 +64,7 @@ class OllamaBackend:
 
     @property
     def supports_tools(self) -> bool:
-        return False
+        return self._tools_enabled
 
     @property
     def supports_sessions(self) -> bool:
@@ -44,6 +72,42 @@ class OllamaBackend:
 
     def _resolve_model(self, model: str) -> str:
         return _MODEL_MAP.get(model) or self._default_model
+
+    def _build_messages(
+        self,
+        user_message: str,
+        system_prompt: str | None = None,
+        memory_context: str | None = None,
+        extra_system_prompt: str | None = None,
+    ) -> list[dict]:
+        """Build the messages list for /api/chat."""
+        messages = []
+
+        # System message
+        system_parts = []
+        if system_prompt:
+            system_parts.append(system_prompt)
+        if memory_context:
+            system_parts.append(memory_context)
+        if extra_system_prompt:
+            system_parts.append(extra_system_prompt)
+        if system_parts:
+            messages.append({"role": "system", "content": "\n\n".join(system_parts)})
+
+        # User message
+        messages.append({"role": "user", "content": user_message})
+        return messages
+
+    def _get_tools(self) -> list[dict] | None:
+        """Return tool schemas if tools are enabled, else None."""
+        if not self._tools_enabled:
+            return None
+        from backends.tools import TOOL_SCHEMAS
+        return TOOL_SCHEMAS
+
+    # ------------------------------------------------------------------
+    # Synchronous call with tool loop
+    # ------------------------------------------------------------------
 
     def call_sync(
         self,
@@ -55,45 +119,92 @@ class OllamaBackend:
         system_prompt: str | None = None,
         memory_context: str | None = None,
     ) -> dict:
-        """Synchronous call to Ollama /api/generate."""
+        """Synchronous call to Ollama /api/chat with optional tool loop."""
         model_id = self._resolve_model(model)
+        messages = self._build_messages(prompt, system_prompt, memory_context)
+        tools = self._get_tools()
+        written_files = []
+        start_time = time.time()
 
-        system_parts = []
-        if system_prompt:
-            system_parts.append(system_prompt)
-        if memory_context:
-            system_parts.append(memory_context)
-        system = "\n\n".join(system_parts) if system_parts else ""
+        log.info("Ollama call_sync: model=%s, tools=%s", model_id, "enabled" if tools else "disabled")
 
-        payload = {
-            "model": model_id,
-            "prompt": prompt,
-            "stream": False,
-        }
-        if system:
-            payload["system"] = system
+        for iteration in range(self._max_iterations):
+            if time.time() - start_time > timeout:
+                log.warning("Ollama call_sync: total timeout reached after %d iterations", iteration)
+                break
 
-        log.info("Ollama call (sync): model=%s, prompt=%d chars", model_id, len(prompt))
+            payload = {
+                "model": model_id,
+                "messages": messages,
+                "stream": False,
+            }
+            if tools:
+                payload["tools"] = tools
 
-        try:
-            data = json.dumps(payload).encode()
-            req = urllib.request.Request(
-                f"{self._base_url}/api/generate",
-                data=data,
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                result = json.loads(resp.read().decode())
+            try:
+                data = json.dumps(payload).encode()
+                req = urllib.request.Request(
+                    f"{self._base_url}/api/chat",
+                    data=data,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    result = json.loads(resp.read().decode())
+            except urllib.error.URLError as e:
+                log.error("Ollama connection error: %s", e)
+                return {"result": f"Ollama error: {e}", "session_id": None}
+            except Exception as e:
+                log.error("Ollama error: %s", e)
+                return {"result": f"Ollama error: {e}", "session_id": None}
+
+            msg = result.get("message", {})
+            content = msg.get("content", "")
+            tool_calls = msg.get("tool_calls")
+
+            # Append assistant message to conversation
+            assistant_msg = {"role": "assistant", "content": content}
+            if tool_calls:
+                assistant_msg["tool_calls"] = tool_calls
+            messages.append(assistant_msg)
+
+            if not tool_calls:
+                # No tool calls — we're done
                 return {
-                    "result": result.get("response", "(empty response)"),
+                    "result": content or "(empty response)",
                     "session_id": None,
+                    "written_files": written_files,
                 }
-        except urllib.error.URLError as e:
-            log.error("Ollama connection error: %s", e)
-            return {"result": f"Ollama error: {e}", "session_id": None}
-        except Exception as e:
-            log.error("Ollama error: %s", e)
-            return {"result": f"Ollama error: {e}", "session_id": None}
+
+            # Execute tool calls
+            from backends.tools import execute_tool
+
+            for tc in tool_calls:
+                func = tc.get("function", {})
+                name = func.get("name", "")
+                args = func.get("arguments", {})
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except json.JSONDecodeError:
+                        args = {}
+
+                log.info("Ollama tool call [sync]: %s(%s)", name, str(args)[:100])
+                result_str, new_files = execute_tool(
+                    name, args, timeout=self._tool_timeout, cwd=self._cwd
+                )
+                written_files.extend(new_files)
+
+                messages.append({"role": "tool", "content": result_str})
+
+        return {
+            "result": content if content else "(max tool iterations reached)",
+            "session_id": None,
+            "written_files": written_files,
+        }
+
+    # ------------------------------------------------------------------
+    # Async streaming call with tool loop
+    # ------------------------------------------------------------------
 
     async def call_streaming(
         self,
@@ -107,58 +218,131 @@ class OllamaBackend:
         memory_context: str | None = None,
         extra_system_prompt: str | None = None,
     ) -> dict:
-        """Async streaming call to Ollama /api/generate with stream=True."""
+        """Async streaming call to Ollama /api/chat with tool loop."""
         import asyncio
 
         model_id = self._resolve_model(model)
+        messages = self._build_messages(message, system_prompt, memory_context, extra_system_prompt)
+        tools = self._get_tools()
+        written_files = []
+        start_time = time.time()
 
-        system_parts = []
-        if system_prompt:
-            system_parts.append(system_prompt)
-        if memory_context:
-            system_parts.append(memory_context)
-        if extra_system_prompt:
-            system_parts.append(extra_system_prompt)
-        system = "\n\n".join(system_parts) if system_parts else ""
-
-        payload = {
-            "model": model_id,
-            "prompt": message,
-            "stream": True,
-        }
-        if system:
-            payload["system"] = system
-
-        log.info("Ollama call (streaming): model=%s", model_id)
+        log.info("Ollama call_streaming: model=%s, tools=%s", model_id, "enabled" if tools else "disabled")
 
         try:
-            # Use aiohttp if available, fall back to sync in executor
-            try:
-                import aiohttp
-                return await self._stream_aiohttp(payload, streaming_editor)
-            except ImportError:
-                loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(
-                    None,
-                    lambda: self._stream_sync(payload),
+            for iteration in range(self._max_iterations):
+                if time.time() - start_time > 300:
+                    log.warning("Ollama streaming: total timeout after %d iterations", iteration)
+                    break
+
+                # Stream the response
+                assistant_msg, tool_calls = await self._stream_chat(
+                    model_id, messages, tools, streaming_editor
                 )
-                return result
+                messages.append(assistant_msg)
+
+                if not tool_calls:
+                    return {
+                        "result": assistant_msg.get("content", "") or "(empty response)",
+                        "session_id": None,
+                        "written_files": written_files,
+                    }
+
+                # Execute tool calls
+                from backends.tools import execute_tool
+                from engine import _format_tool_status
+
+                for tc in tool_calls:
+                    func = tc.get("function", {})
+                    name = func.get("name", "")
+                    args = func.get("arguments", {})
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except json.JSONDecodeError:
+                            args = {}
+
+                    # Show tool status in Telegram
+                    status = _format_tool_status(name, args)
+                    if streaming_editor:
+                        await streaming_editor.add_tool_status(status)
+                    elif on_progress:
+                        await on_progress(status)
+
+                    log.info("Ollama tool call [stream]: %s(%s)", name, str(args)[:100])
+
+                    # Execute in thread pool to avoid blocking
+                    result_str, new_files = await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda n=name, a=args: execute_tool(
+                            n, a, timeout=self._tool_timeout, cwd=self._cwd
+                        ),
+                    )
+                    written_files.extend(new_files)
+                    messages.append({"role": "tool", "content": result_str})
+
+            return {
+                "result": "(max tool iterations reached)",
+                "session_id": None,
+                "written_files": written_files,
+            }
+
         except Exception as e:
             log.error("Ollama streaming error: %s", e)
             return {
                 "result": f"Ollama error: {e}",
                 "session_id": None,
-                "written_files": [],
+                "written_files": written_files,
             }
 
-    async def _stream_aiohttp(self, payload: dict, streaming_editor=None) -> dict:
+    async def _stream_chat(
+        self,
+        model_id: str,
+        messages: list[dict],
+        tools: list[dict] | None,
+        streaming_editor=None,
+    ) -> tuple[dict, list[dict] | None]:
+        """Stream a single /api/chat call. Returns (assistant_message, tool_calls).
+
+        Accumulates text deltas and sends them to the streaming editor.
+        When done, returns the full assistant message and any tool calls.
+        """
+        try:
+            import aiohttp
+            return await self._stream_chat_aiohttp(
+                model_id, messages, tools, streaming_editor
+            )
+        except ImportError:
+            import asyncio
+            return await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self._stream_chat_sync(model_id, messages, tools),
+            )
+
+    async def _stream_chat_aiohttp(
+        self,
+        model_id: str,
+        messages: list[dict],
+        tools: list[dict] | None,
+        streaming_editor=None,
+    ) -> tuple[dict, list[dict] | None]:
         """Stream using aiohttp for true async."""
         import aiohttp
 
-        result_text = ""
+        payload = {
+            "model": model_id,
+            "messages": messages,
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = tools
+
+        content = ""
+        tool_calls = None
+
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{self._base_url}/api/generate",
+                f"{self._base_url}/api/chat",
                 json=payload,
             ) as resp:
                 async for line in resp.content:
@@ -166,42 +350,78 @@ class OllamaBackend:
                         continue
                     try:
                         chunk = json.loads(line.decode())
-                        text = chunk.get("response", "")
-                        if text:
-                            result_text += text
-                            if streaming_editor:
-                                await streaming_editor.add_text(text)
                     except json.JSONDecodeError:
                         continue
 
-        return {
-            "result": result_text or "(empty response)",
-            "session_id": None,
-            "written_files": [],
-        }
+                    msg = chunk.get("message", {})
 
-    def _stream_sync(self, payload: dict) -> dict:
-        """Fallback: stream synchronously (no real-time editor updates)."""
+                    # Accumulate text content
+                    text = msg.get("content", "")
+                    if text:
+                        content += text
+                        if streaming_editor:
+                            await streaming_editor.add_text(text)
+
+                    # Check for tool calls (appear in final chunk when done=true)
+                    if chunk.get("done") and msg.get("tool_calls"):
+                        tool_calls = msg["tool_calls"]
+
+                    # Some Ollama versions send tool_calls incrementally
+                    if not chunk.get("done") and msg.get("tool_calls") and tool_calls is None:
+                        tool_calls = msg["tool_calls"]
+
+        assistant_msg = {"role": "assistant", "content": content}
+        if tool_calls:
+            assistant_msg["tool_calls"] = tool_calls
+
+        return assistant_msg, tool_calls
+
+    def _stream_chat_sync(
+        self,
+        model_id: str,
+        messages: list[dict],
+        tools: list[dict] | None,
+    ) -> tuple[dict, list[dict] | None]:
+        """Fallback: synchronous streaming (no real-time editor updates)."""
+        payload = {
+            "model": model_id,
+            "messages": messages,
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = tools
+
         data = json.dumps(payload).encode()
         req = urllib.request.Request(
-            f"{self._base_url}/api/generate",
+            f"{self._base_url}/api/chat",
             data=data,
             headers={"Content-Type": "application/json"},
         )
 
-        result_text = ""
+        content = ""
+        tool_calls = None
+
         with urllib.request.urlopen(req, timeout=300) as resp:
             for line in resp:
                 if not line:
                     continue
                 try:
                     chunk = json.loads(line.decode())
-                    result_text += chunk.get("response", "")
                 except json.JSONDecodeError:
                     continue
 
-        return {
-            "result": result_text or "(empty response)",
-            "session_id": None,
-            "written_files": [],
-        }
+                msg = chunk.get("message", {})
+                text = msg.get("content", "")
+                if text:
+                    content += text
+
+                if chunk.get("done") and msg.get("tool_calls"):
+                    tool_calls = msg["tool_calls"]
+                if not chunk.get("done") and msg.get("tool_calls") and tool_calls is None:
+                    tool_calls = msg["tool_calls"]
+
+        assistant_msg = {"role": "assistant", "content": content}
+        if tool_calls:
+            assistant_msg["tool_calls"] = tool_calls
+
+        return assistant_msg, tool_calls

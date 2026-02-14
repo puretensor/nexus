@@ -52,20 +52,20 @@ def split_message(text: str, limit: int = 4000) -> list[str]:
 
 def _format_tool_status(tool_name: str, tool_input: dict) -> str:
     """Map a tool_use event to a human-readable status line."""
-    if tool_name == "Bash":
+    if tool_name in ("Bash", "bash"):
         cmd = tool_input.get("command", "")
         if len(cmd) > 80:
             cmd = cmd[:77] + "..."
         return f"Running: {cmd}"
-    elif tool_name == "Read":
+    elif tool_name in ("Read", "read_file"):
         return f"Reading: {tool_input.get('file_path', '?')}"
-    elif tool_name == "Edit":
+    elif tool_name in ("Edit", "edit_file"):
         return f"Editing: {tool_input.get('file_path', '?')}"
-    elif tool_name == "Write":
+    elif tool_name in ("Write", "write_file"):
         return f"Writing: {tool_input.get('file_path', '?')}"
-    elif tool_name == "Glob":
+    elif tool_name in ("Glob", "glob"):
         return f"Searching files: {tool_input.get('pattern', '?')}"
-    elif tool_name == "Grep":
+    elif tool_name in ("Grep", "grep"):
         return f"Searching content: {tool_input.get('pattern', '?')}"
     elif tool_name == "WebFetch":
         url = tool_input.get("url", "?")

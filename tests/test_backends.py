@@ -240,15 +240,44 @@ class TestOllamaBackend:
         backend = OllamaBackend()
         assert backend.supports_streaming is True
 
+    def test_supports_tools_default(self):
+        backend = OllamaBackend()
+        assert backend.supports_tools is True
+
+    def test_supports_tools_disabled(self):
+        with patch("config.OLLAMA_TOOLS_ENABLED", False):
+            backend = OllamaBackend()
+            assert backend.supports_tools is False
+
     def test_no_sessions(self):
         backend = OllamaBackend()
         assert backend.supports_sessions is False
 
+    def test_build_messages(self):
+        """_build_messages produces correct chat format."""
+        backend = OllamaBackend()
+        messages = backend._build_messages("Hello", system_prompt="Be helpful")
+        assert len(messages) == 2
+        assert messages[0]["role"] == "system"
+        assert messages[0]["content"] == "Be helpful"
+        assert messages[1]["role"] == "user"
+        assert messages[1]["content"] == "Hello"
+
+    def test_build_messages_no_system(self):
+        """_build_messages omits system when no system prompt."""
+        backend = OllamaBackend()
+        messages = backend._build_messages("Hello")
+        assert len(messages) == 1
+        assert messages[0]["role"] == "user"
+
     def test_call_sync_success(self):
-        """call_sync should call Ollama API and parse response."""
+        """call_sync should call Ollama /api/chat and parse response."""
         backend = OllamaBackend()
 
-        response_data = json.dumps({"response": "Hello from Ollama"}).encode()
+        response_data = json.dumps({
+            "message": {"role": "assistant", "content": "Hello from Ollama"},
+            "done": True,
+        }).encode()
         mock_resp = MagicMock()
         mock_resp.read.return_value = response_data
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
@@ -260,6 +289,107 @@ class TestOllamaBackend:
         assert result["result"] == "Hello from Ollama"
         assert result["session_id"] is None
 
+    def test_call_sync_uses_chat_endpoint(self):
+        """call_sync should POST to /api/chat, not /api/generate."""
+        backend = OllamaBackend()
+
+        response_data = json.dumps({
+            "message": {"role": "assistant", "content": "ok"},
+            "done": True,
+        }).encode()
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = response_data
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("backends.ollama.urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            backend.call_sync("test")
+            req = mock_urlopen.call_args[0][0]
+            assert "/api/chat" in req.full_url
+
+    def test_call_sync_sends_tools(self):
+        """call_sync should include tools in payload when enabled."""
+        backend = OllamaBackend()
+
+        response_data = json.dumps({
+            "message": {"role": "assistant", "content": "ok"},
+            "done": True,
+        }).encode()
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = response_data
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("backends.ollama.urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            backend.call_sync("test")
+            req = mock_urlopen.call_args[0][0]
+            payload = json.loads(req.data.decode())
+            assert "tools" in payload
+            assert len(payload["tools"]) == 6
+
+    def test_call_sync_no_tools_when_disabled(self):
+        """call_sync should not include tools when disabled."""
+        with patch("config.OLLAMA_TOOLS_ENABLED", False):
+            backend = OllamaBackend()
+
+        response_data = json.dumps({
+            "message": {"role": "assistant", "content": "ok"},
+            "done": True,
+        }).encode()
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = response_data
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with patch("backends.ollama.urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            backend.call_sync("test")
+            req = mock_urlopen.call_args[0][0]
+            payload = json.loads(req.data.decode())
+            assert "tools" not in payload
+
+    def test_call_sync_tool_loop(self):
+        """call_sync should execute tool calls and loop."""
+        backend = OllamaBackend()
+
+        # First response: model requests a tool call
+        tool_response = json.dumps({
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "function": {
+                        "name": "bash",
+                        "arguments": {"command": "echo tool_test"},
+                    }
+                }],
+            },
+            "done": True,
+        }).encode()
+
+        # Second response: model returns final text
+        final_response = json.dumps({
+            "message": {"role": "assistant", "content": "The result is: tool_test"},
+            "done": True,
+        }).encode()
+
+        call_count = [0]
+        def mock_urlopen(req, **kwargs):
+            mock_resp = MagicMock()
+            if call_count[0] == 0:
+                mock_resp.read.return_value = tool_response
+            else:
+                mock_resp.read.return_value = final_response
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            call_count[0] += 1
+            return mock_resp
+
+        with patch("backends.ollama.urllib.request.urlopen", side_effect=mock_urlopen):
+            result = backend.call_sync("run echo tool_test")
+
+        assert call_count[0] == 2
+        assert result["result"] == "The result is: tool_test"
+
     def test_call_sync_connection_error(self):
         """call_sync should handle connection errors."""
         import urllib.error
@@ -269,6 +399,54 @@ class TestOllamaBackend:
             result = backend.call_sync("test")
 
         assert "error" in result["result"].lower()
+
+    def test_call_sync_written_files_tracked(self):
+        """call_sync should track files written by write_file tool."""
+        import tempfile
+        backend = OllamaBackend()
+
+        tmpdir = tempfile.mkdtemp()
+        target_path = f"{tmpdir}/test_output.txt"
+
+        tool_response = json.dumps({
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "function": {
+                        "name": "write_file",
+                        "arguments": {"file_path": target_path, "content": "hello"},
+                    }
+                }],
+            },
+            "done": True,
+        }).encode()
+
+        final_response = json.dumps({
+            "message": {"role": "assistant", "content": "Done"},
+            "done": True,
+        }).encode()
+
+        call_count = [0]
+        def mock_urlopen(req, **kwargs):
+            mock_resp = MagicMock()
+            if call_count[0] == 0:
+                mock_resp.read.return_value = tool_response
+            else:
+                mock_resp.read.return_value = final_response
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            call_count[0] += 1
+            return mock_resp
+
+        with patch("backends.ollama.urllib.request.urlopen", side_effect=mock_urlopen):
+            result = backend.call_sync("write hello to a file")
+
+        assert target_path in result.get("written_files", [])
+
+        # Cleanup
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
