@@ -10,14 +10,14 @@ from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
 
 from db import authorized, get_session, upsert_session, get_lock
-from config import log
+from config import log, AGENT_NAME
 from handlers.summaries import maybe_generate_summary
 from channels.telegram.streaming import StreamingEditor
 from engine import call_streaming, split_message
 from handlers.file_output import scan_and_send_outputs
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
-USER_AGENT = "PureClaw-TelegramBot/1.0"
+USER_AGENT = f"{AGENT_NAME}-TelegramBot/1.0"
 
 
 def _reverse_geocode(lat: float, lon: float) -> str | None:

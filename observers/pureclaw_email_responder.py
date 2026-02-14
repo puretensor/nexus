@@ -21,6 +21,7 @@ import subprocess
 from pathlib import Path
 
 from observers.base import Observer, ObserverContext, ObserverResult
+from config import AGENT_NAME
 
 log = logging.getLogger("nexus")
 
@@ -173,7 +174,7 @@ class PureClawEmailResponderObserver(Observer):
                 safe_sender = sender[:80].replace("<", "&lt;").replace(">", "&gt;")
                 safe_subj = subject[:80].replace("<", "&lt;").replace(">", "&gt;")
                 self.send_telegram_html(
-                    f"<b>PureClaw: Email from unknown sender (quarantined)</b>\n"
+                    f"<b>{AGENT_NAME}: Email from unknown sender (quarantined)</b>\n"
                     f"From: <code>{safe_sender}</code>\n"
                     f"Subject: {safe_subj}\n\n"
                     f"Content NOT processed by AI.\n"
@@ -188,7 +189,7 @@ class PureClawEmailResponderObserver(Observer):
 
             # ── ALLOWED SENDER — assess with Claude ─────────────
             assessment = self.call_claude(
-                "You are PureClaw, Deputy CTO of Pure Tensor (hal@puretensor.ai). "
+                f"You are {AGENT_NAME}, Deputy CTO of Pure Tensor (hal@puretensor.ai). "
                 "You received this email from a trusted contact.\n\n"
                 "Assess whether a reply is needed:\n"
                 '- Simple acknowledgments ("thanks", "got it", "ok") that '
@@ -202,7 +203,7 @@ class PureClawEmailResponderObserver(Observer):
                 '{"reply_needed": true/false, '
                 '"reason": "brief explanation", '
                 '"reply": "the reply text if needed, or empty string"}\n\n'
-                "Sign any reply as:\nPureClaw\nDeputy CTO, Pure Tensor\n"
+                f"Sign any reply as:\n{AGENT_NAME}\nDeputy CTO, Pure Tensor\n"
                 "hal@puretensor.ai\n\n"
                 f"EMAIL:\n{content}",
                 model="sonnet",
@@ -248,7 +249,7 @@ class PureClawEmailResponderObserver(Observer):
 
         return ObserverResult(
             success=True,
-            message="" if not parts else f"PureClaw Email: {', '.join(parts)}",
+            message="" if not parts else f"{AGENT_NAME} Email: {', '.join(parts)}",
             data={"replies_sent": replies_sent, "quarantined": quarantined},
         )
 

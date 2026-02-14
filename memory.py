@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config import log
+from config import log, AGENT_NAME
 
 # ---------------------------------------------------------------------------
 # Config
@@ -162,7 +162,7 @@ def get_memories_for_injection(limit: int = 10) -> str:
     if not memories:
         return ""
 
-    lines = ["[PureClaw Memory]"]
+    lines = [f"[{AGENT_NAME} Memory]"]
     for mem in memories:
         lines.append(f"- {mem['category']}: {mem['text']}")
     return "\n".join(lines)

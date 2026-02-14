@@ -2,6 +2,7 @@
 
 import logging
 import os
+import shutil
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -15,7 +16,7 @@ load_dotenv(ENV_PATH)
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 AUTHORIZED_USER_ID = int(os.environ["AUTHORIZED_USER_ID"])
-CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "/usr/bin/claude")
+CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or "/usr/bin/claude"
 CLAUDE_CWD = os.environ.get("CLAUDE_CWD", "/home/puretensorai")
 TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "300"))
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:9000/transcribe")
@@ -38,12 +39,16 @@ OPENAI_COMPAT_KEY = os.environ.get("OPENAI_COMPAT_KEY", "")
 OPENAI_COMPAT_MODEL = os.environ.get("OPENAI_COMPAT_MODEL", "gpt-4o")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_API_MODEL = os.environ.get("GEMINI_API_MODEL", "gemini-2.5-flash")
-GEMINI_BIN = os.environ.get("GEMINI_BIN", "/usr/bin/gemini")
+GEMINI_BIN = os.environ.get("GEMINI_BIN") or shutil.which("gemini") or "/usr/bin/gemini"
 GEMINI_CLI_MODEL = os.environ.get("GEMINI_CLI_MODEL", "gemini-2.5-flash")
-CODEX_BIN = os.environ.get("CODEX_BIN", "/usr/bin/codex")
+CODEX_BIN = os.environ.get("CODEX_BIN") or shutil.which("codex") or "/usr/bin/codex"
 CODEX_MODEL = os.environ.get("CODEX_MODEL", "")
 CODEX_CWD = os.environ.get("CODEX_CWD", "/home/puretensorai")
 ALERT_BOT_TOKEN = os.environ.get("ALERT_BOT_TOKEN", BOT_TOKEN)  # fallback to main bot
+
+# Agent identity — configurable name and personality
+AGENT_NAME = os.environ.get("AGENT_NAME", "PureClaw")
+AGENT_PERSONALITY = os.environ.get("AGENT_PERSONALITY", "")
 
 # Dispatcher
 WEATHER_DEFAULT_LOCATION = os.environ.get("WEATHER_DEFAULT_LOCATION", "Windsor,UK")
@@ -84,6 +89,17 @@ if _system_prompt and _context_prompt:
     _system_prompt = _system_prompt + "\n\n---\n\n" + _context_prompt
 elif _context_prompt:
     _system_prompt = _context_prompt
+
+# Apply agent identity template substitution
+if _system_prompt:
+    _system_prompt = _system_prompt.replace("{agent_name}", AGENT_NAME)
+    if AGENT_PERSONALITY:
+        _system_prompt = _system_prompt.replace(
+            "{agent_personality_block}",
+            f"\nPersonality: {AGENT_PERSONALITY}\n"
+        )
+    else:
+        _system_prompt = _system_prompt.replace("{agent_personality_block}", "")
 
 SYSTEM_PROMPT = _system_prompt
 

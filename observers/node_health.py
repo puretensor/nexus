@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from observers.base import Observer, ObserverResult
-from config import PROMETHEUS_URL, ALERT_BOT_TOKEN, AUTHORIZED_USER_ID
+from config import PROMETHEUS_URL, ALERT_BOT_TOKEN, AUTHORIZED_USER_ID, AGENT_NAME
 
 log = logging.getLogger("nexus")
 
@@ -137,7 +137,7 @@ class NodeHealthObserver(Observer):
             "3. Determine if it's a node_exporter issue vs actual node failure\n"
             "4. Attempt remediation if possible (restart exporter, etc.)\n"
             "5. Summarise findings concisely\n\n"
-            "This is an automated alert from the PureClaw observer system."
+            f"This is an automated alert from the {AGENT_NAME} observer system."
         )
 
         log.info("Invoking Claude to investigate %d down nodes...", len(down_nodes))

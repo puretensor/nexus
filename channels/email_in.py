@@ -20,7 +20,7 @@ import logging
 from pathlib import Path
 
 from channels.base import Channel
-from config import AUTHORIZED_USER_ID, log
+from config import AUTHORIZED_USER_ID, AGENT_NAME, log
 from db import is_email_seen, mark_email_seen
 from drafts.classifier import classify_email
 from drafts.queue import create_email_draft
@@ -254,7 +254,7 @@ class EmailInputChannel(Channel):
 
         body_preview = em["body"][:2000] if em.get("body") else "(no body)"
         prompt = (
-            "You are PureClaw, an AI assistant. Draft a professional reply to this email.\n"
+            f"You are {AGENT_NAME}, an AI assistant. Draft a professional reply to this email.\n"
             "Keep it concise, helpful, and match the tone of the original.\n"
             "Output ONLY the reply text — no subject line, no 'Dear...', just the content.\n\n"
             f"From: {em['from']}\n"

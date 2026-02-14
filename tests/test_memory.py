@@ -38,6 +38,7 @@ with patch.dict("os.environ", {
         _save,
         MEMORY_PATH,
     )
+    from config import AGENT_NAME
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +251,7 @@ class TestGetMemoriesForInjection:
         add_memory("tensor-core runs Proxmox with 4 nodes", "infrastructure")
 
         output = get_memories_for_injection()
-        assert output.startswith("[PureClaw Memory]")
+        assert output.startswith(f"[{AGENT_NAME} Memory]")
         assert "- preferences: User prefers concise responses" in output
         assert "- infrastructure: tensor-core runs Proxmox with 4 nodes" in output
 

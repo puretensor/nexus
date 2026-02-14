@@ -38,7 +38,7 @@ with patch.dict("os.environ", {
         get_lock,
         DB_PATH,
     )
-    from config import _system_prompt
+    from config import _system_prompt, AGENT_NAME
     from engine import (
         split_message,
         _format_tool_status,
@@ -586,7 +586,7 @@ class TestPureClawSystemPrompt:
         """System prompt should be loaded from nexus_system_prompt.md."""
         assert _system_prompt is not None
         assert len(_system_prompt) > 0
-        assert "NEXUS" in _system_prompt
+        assert AGENT_NAME in _system_prompt
 
     def test_system_prompt_contains_key_directives(self):
         """System prompt should contain essential personality directives."""
