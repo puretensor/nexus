@@ -20,6 +20,18 @@ CLAUDE_CWD = os.environ.get("CLAUDE_CWD", "/home/puretensorai")
 TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "300"))
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:9000/transcribe")
 
+# Engine backend selection (claude_code, anthropic_api, ollama, openai_compat, gemini_cli, codex_cli)
+ENGINE_BACKEND = os.environ.get("ENGINE_BACKEND", "claude_code")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:30b-a3b")
+OPENAI_COMPAT_URL = os.environ.get("OPENAI_COMPAT_URL", "")
+OPENAI_COMPAT_KEY = os.environ.get("OPENAI_COMPAT_KEY", "")
+OPENAI_COMPAT_MODEL = os.environ.get("OPENAI_COMPAT_MODEL", "gpt-4o")
+GEMINI_BIN = os.environ.get("GEMINI_BIN", "/usr/bin/gemini")
+CODEX_BIN = os.environ.get("CODEX_BIN", "/usr/bin/codex")
+ALERT_BOT_TOKEN = os.environ.get("ALERT_BOT_TOKEN", BOT_TOKEN)  # fallback to main bot
+
 # Dispatcher
 WEATHER_DEFAULT_LOCATION = os.environ.get("WEATHER_DEFAULT_LOCATION", "Windsor,UK")
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://100.80.213.1:9090")

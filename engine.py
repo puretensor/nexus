@@ -1,17 +1,17 @@
-"""Engine — Claude CLI caller, stream reader, and message splitting.
+"""Engine — LLM backend facade, stream reader, and message splitting.
 
-Ported from ~/claude-telegram/streaming.py. The StreamingEditor (Telegram-specific)
-lives in channels/telegram/streaming.py; this module contains the transport-agnostic
-Claude invocation and stream parsing logic.
+Public API: call_sync(), call_streaming(), split_message()
+Backend selection: ENGINE_BACKEND env var (default: claude_code)
+
+Utilities (_read_stream, _format_tool_status, split_message) remain here
+for backward compatibility and are used by the claude_code backend.
 """
 
 import asyncio
 import json
 import logging
-import subprocess
-import time
 
-from config import CLAUDE_BIN, CLAUDE_CWD, TIMEOUT, SYSTEM_PROMPT
+from config import SYSTEM_PROMPT
 
 try:
     from memory import get_memories_for_injection
@@ -84,7 +84,7 @@ def _format_tool_status(tool_name: str, tool_input: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Stream reader
+# Stream reader (used by claude_code backend)
 # ---------------------------------------------------------------------------
 
 
@@ -188,7 +188,7 @@ async def _read_stream(proc, on_progress=None, streaming_editor=None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Claude CLI caller
+# Public API — delegates to configured backend
 # ---------------------------------------------------------------------------
 
 
@@ -198,48 +198,19 @@ def call_sync(
     session_id: str | None = None,
     timeout: int = 300,
 ) -> dict:
-    """Synchronous Claude call (for observers running in thread pool).
+    """Synchronous LLM call (for observers running in thread pool).
 
     Returns dict with 'result', 'session_id' keys.
     """
-    cmd = [
-        CLAUDE_BIN,
-        "-p", prompt,
-        "--output-format", "json",
-        "--dangerously-skip-permissions",
-        "--model", model,
-    ]
-    if session_id:
-        cmd.extend(["--resume", session_id])
-    if SYSTEM_PROMPT:
-        cmd.extend(["--append-system-prompt", SYSTEM_PROMPT])
+    from backends import get_backend
 
-    log.info("Running (sync): %s", " ".join(cmd[:6]) + " ...")
-
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout, cwd=CLAUDE_CWD
-        )
-    except subprocess.TimeoutExpired:
-        return {"result": f"Claude timed out after {timeout}s", "session_id": None}
-
-    if result.returncode != 0:
-        return {
-            "result": f"Claude error (exit {result.returncode}): {result.stderr[:500]}",
-            "session_id": None,
-        }
-
-    try:
-        data = json.loads(result.stdout)
-        return {
-            "result": data.get("result", "(empty response)"),
-            "session_id": data.get("session_id"),
-        }
-    except json.JSONDecodeError:
-        return {
-            "result": result.stdout.strip()[:4000] if result.stdout else "(no output)",
-            "session_id": None,
-        }
+    return get_backend().call_sync(
+        prompt,
+        model=model,
+        session_id=session_id,
+        timeout=timeout,
+        system_prompt=SYSTEM_PROMPT,
+    )
 
 
 async def call_streaming(
@@ -250,61 +221,23 @@ async def call_streaming(
     streaming_editor=None,
     extra_system_prompt: str | None = None,
 ) -> dict:
-    """Shell out to `claude -p` with stream-json output and return parsed result."""
-    cmd = [
-        CLAUDE_BIN,
-        "-p", message,
-        "--output-format", "stream-json",
-        "--verbose",
-        "--dangerously-skip-permissions",
-        "--model", model,
-        "--include-partial-messages",
-    ]
-    if session_id:
-        cmd.extend(["--resume", session_id])
-    if SYSTEM_PROMPT:
-        cmd.extend(["--append-system-prompt", SYSTEM_PROMPT])
+    """Async streaming LLM call with real-time progress.
 
-    # Inject persistent memories
+    Returns dict with 'result', 'session_id', 'written_files' keys.
+    """
+    from backends import get_backend
+
+    memory_ctx = None
     if get_memories_for_injection:
         memory_ctx = get_memories_for_injection()
-        if memory_ctx:
-            cmd.extend(["--append-system-prompt", memory_ctx])
 
-    # Inject extra system prompt (e.g. voice mode instructions)
-    if extra_system_prompt:
-        cmd.extend(["--append-system-prompt", extra_system_prompt])
-
-    log.info("Running (streaming): %s", " ".join(cmd[:6]) + " ...")
-
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=CLAUDE_CWD,
-        limit=10 * 1024 * 1024,  # 10MB buffer for large stream-json lines
+    return await get_backend().call_streaming(
+        message,
+        session_id=session_id,
+        model=model,
+        on_progress=on_progress,
+        streaming_editor=streaming_editor,
+        system_prompt=SYSTEM_PROMPT,
+        memory_context=memory_ctx,
+        extra_system_prompt=extra_system_prompt,
     )
-
-    try:
-        data = await asyncio.wait_for(
-            _read_stream(proc, on_progress=on_progress, streaming_editor=streaming_editor),
-            timeout=TIMEOUT,
-        )
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.communicate()
-        raise TimeoutError(f"Claude timed out after {TIMEOUT}s")
-
-    # Wait for process to fully exit
-    await proc.wait()
-
-    if proc.returncode != 0:
-        stderr_bytes = await proc.stderr.read() if proc.stderr else b""
-        err = stderr_bytes.decode().strip()
-        log.warning("Claude exited %d (stream mode), stderr: %s", proc.returncode, err[:500])
-        # In stream mode, we may still have a valid result even with non-zero exit
-        if data and data.get("result"):
-            return data
-        raise RuntimeError(f"claude exited {proc.returncode}: {err}")
-
-    return data

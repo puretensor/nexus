@@ -6,7 +6,6 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
-from config import CLAUDE_BIN, CLAUDE_CWD
 from db import (
     get_due_tasks,
     mark_task_run,
@@ -397,47 +396,18 @@ def compute_next_trigger(current_trigger: str, recurrence: str) -> str:
 
 
 async def _execute_task(task: dict, bot) -> str:
-    """Run a scheduled task via Claude CLI and return the result text."""
-    prompt = task["prompt"]
-    cmd = [
-        CLAUDE_BIN,
-        "-p", prompt,
-        "--output-format", "json",
-        "--dangerously-skip-permissions",
-        "--model", "sonnet",
-    ]
+    """Run a scheduled task via engine.call_sync and return the result text."""
+    from engine import call_sync
 
+    prompt = task["prompt"]
     log.info("Scheduler executing task %d: %s", task["id"], prompt[:80])
 
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=CLAUDE_CWD,
+    loop = asyncio.get_event_loop()
+    data = await loop.run_in_executor(
+        None, lambda: call_sync(prompt, model="sonnet", timeout=300)
     )
 
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.communicate()
-        return f"[Scheduled task timed out after 300s]\n\nPrompt: {prompt}"
-
-    if proc.returncode != 0:
-        err = stderr.decode().strip()[:300] if stderr else "unknown error"
-        log.warning("Scheduled task %d failed (exit %d): %s", task["id"], proc.returncode, err)
-        return f"[Scheduled task error]\n\nPrompt: {prompt}\nError: {err}"
-
-    # Parse JSON output
-    try:
-        data = json.loads(stdout.decode())
-        result = data.get("result", "")
-        if not result:
-            result = "(Empty response)"
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        result = stdout.decode().strip()[:4000] if stdout else "(No output)"
-
-    return result
+    return data.get("result", "(Empty response)")
 
 
 async def run_scheduler(bot):

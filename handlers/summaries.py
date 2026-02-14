@@ -1,11 +1,9 @@
 """Auto-generate session summaries every N messages."""
 
 import asyncio
-import json
 import logging
 
 from db import get_session, update_summary
-from config import CLAUDE_BIN, CLAUDE_CWD
 
 log = logging.getLogger("nexus")
 
@@ -31,38 +29,24 @@ async def maybe_generate_summary(chat_id: int):
 
 
 async def _generate_summary(chat_id: int, session_id: str):
-    """Call Claude with a cheap one-shot prompt to summarize the session."""
+    """Call the LLM with a cheap one-shot prompt to summarize the session."""
+    from engine import call_sync
+
     try:
         prompt = (
             "Summarize this conversation in exactly one short sentence (under 60 characters) "
             "for a session list. Just output the summary, nothing else. No quotes."
         )
-        cmd = [
-            CLAUDE_BIN,
-            "-p", prompt,
-            "--output-format", "json",
-            "--model", "haiku",
-            "--resume", session_id,
-        ]
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=CLAUDE_CWD,
+        loop = asyncio.get_event_loop()
+        data = await loop.run_in_executor(
+            None,
+            lambda: call_sync(
+                prompt, model="haiku", session_id=session_id, timeout=30
+            ),
         )
 
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-
-        if proc.returncode != 0:
-            log.warning("Summary generation failed (exit %d): %s", proc.returncode, stderr.decode()[:200])
-            return
-
-        try:
-            data = json.loads(stdout.decode())
-            summary = data.get("result", "").strip()
-        except (json.JSONDecodeError, AttributeError):
-            summary = stdout.decode().strip()
+        summary = data.get("result", "").strip()
 
         if summary and len(summary) < 200:
             update_summary(chat_id, summary)
@@ -70,7 +54,5 @@ async def _generate_summary(chat_id: int, session_id: str):
         else:
             log.warning("Summary too long or empty, skipping: %s", summary[:100] if summary else "(empty)")
 
-    except asyncio.TimeoutError:
-        log.warning("Summary generation timed out for chat %d", chat_id)
     except Exception:
         log.exception("Failed to generate summary for chat %d", chat_id)

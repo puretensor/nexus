@@ -102,11 +102,14 @@ class Observer(ABC):
         except Exception as e:
             log.warning("Telegram HTML send failed for %s: %s", self.name, e)
 
-    def call_claude(self, prompt: str, model: str = "sonnet", timeout: int = 300) -> str:
-        """Invoke Claude CLI synchronously. Returns result text."""
+    def call_llm(self, prompt: str, model: str = "sonnet", timeout: int = 300) -> str:
+        """Invoke the configured LLM backend synchronously. Returns result text."""
         from engine import call_sync
         result = call_sync(prompt, model=model, timeout=timeout)
         return result.get("result", "")
+
+    # Backward-compatible alias
+    call_claude = call_llm
 
     def now_utc(self) -> datetime:
         """Current UTC datetime."""

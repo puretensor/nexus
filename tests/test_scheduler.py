@@ -824,8 +824,6 @@ class TestRunScheduler:
     def use_temp_db(self, tmp_path, monkeypatch):
         db_path = tmp_path / "test.db"
         monkeypatch.setattr("db.DB_PATH", db_path)
-        monkeypatch.setattr("scheduler.CLAUDE_BIN", "/usr/bin/echo")
-        monkeypatch.setattr("scheduler.CLAUDE_CWD", str(tmp_path))
         init_db()
         self.chat_id = 12345
 
@@ -925,8 +923,8 @@ class TestRunScheduler:
         assert len(tasks) == 0
 
     @pytest.mark.asyncio
-    async def test_execute_task_calls_subprocess(self):
-        """_execute_task should call Claude CLI and return result."""
+    async def test_execute_task_calls_engine(self):
+        """_execute_task should call engine.call_sync and return result."""
         task = {
             "id": 1,
             "chat_id": self.chat_id,
@@ -936,24 +934,14 @@ class TestRunScheduler:
             "last_run": None,
         }
 
-        # Mock subprocess to return JSON result
-        mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (
-            json.dumps({"result": "Hello from Claude"}).encode(),
-            b"",
-        )
-        mock_proc.returncode = 0
-
-        with patch("scheduler.asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_subproc:
-            mock_subproc.return_value = mock_proc
-
+        with patch("engine.call_sync", return_value={"result": "Hello from Claude", "session_id": None}):
             result = await _execute_task(task, AsyncMock())
 
         assert "Hello from Claude" in result
 
     @pytest.mark.asyncio
     async def test_execute_task_handles_timeout(self):
-        """_execute_task should handle subprocess timeout gracefully."""
+        """_execute_task should handle engine timeout gracefully."""
         task = {
             "id": 1,
             "chat_id": self.chat_id,
@@ -963,39 +951,15 @@ class TestRunScheduler:
             "last_run": None,
         }
 
-        mock_proc = AsyncMock()
-        call_count = 0
-
-        async def communicate_side_effect():
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # This return value won't be used since wait_for raises TimeoutError
-                return (b"", b"")
-            # Second call: after kill, in except block
-            return (b"", b"")
-
-        mock_proc.communicate = communicate_side_effect
-        mock_proc.kill = MagicMock()
-
-        async def mock_wait_for(coro, timeout):
-            # Consume the coroutine to avoid warning
-            try:
-                await coro
-            except Exception:
-                pass
-            raise asyncio.TimeoutError()
-
-        with patch("scheduler.asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_subproc:
-            mock_subproc.return_value = mock_proc
-            with patch("scheduler.asyncio.wait_for", side_effect=mock_wait_for):
-                result = await _execute_task(task, AsyncMock())
+        # engine.call_sync returns a timeout message (doesn't raise)
+        with patch("engine.call_sync", return_value={"result": "Claude timed out after 300s", "session_id": None}):
+            result = await _execute_task(task, AsyncMock())
 
         assert "timed out" in result.lower()
 
     @pytest.mark.asyncio
-    async def test_execute_task_handles_nonzero_exit(self):
-        """_execute_task should handle CLI errors gracefully."""
+    async def test_execute_task_handles_error(self):
+        """_execute_task should handle engine errors gracefully."""
         task = {
             "id": 1,
             "chat_id": self.chat_id,
@@ -1005,13 +969,7 @@ class TestRunScheduler:
             "last_run": None,
         }
 
-        mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"", b"something went wrong")
-        mock_proc.returncode = 1
-
-        with patch("scheduler.asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_subproc:
-            mock_subproc.return_value = mock_proc
-
+        with patch("engine.call_sync", return_value={"result": "Claude error (exit 1): something went wrong", "session_id": None}):
             result = await _execute_task(task, AsyncMock())
 
         assert "error" in result.lower()
@@ -1424,8 +1382,6 @@ class TestReminderExecution:
     def use_temp_db(self, tmp_path, monkeypatch):
         db_path = tmp_path / "test.db"
         monkeypatch.setattr("db.DB_PATH", db_path)
-        monkeypatch.setattr("scheduler.CLAUDE_BIN", "/usr/bin/echo")
-        monkeypatch.setattr("scheduler.CLAUDE_CWD", str(tmp_path))
         init_db()
         self.chat_id = 12345
 
