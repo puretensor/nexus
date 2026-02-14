@@ -35,9 +35,7 @@ from dispatcher.cards import (
     render_trains,
     render_gold,
     render_status,
-    render_markets,
-    render_forex,
-    render_world,
+    render_markets_unified,
 )
 
 log = logging.getLogger("dispatcher")
@@ -140,13 +138,17 @@ async def handle_weather(location: str | None, chat, bot) -> None:
     )
 
 
-async def handle_crypto(chat, bot) -> None:
-    """Fetch crypto prices and send card."""
-    data = await fetch_crypto()
-    png_buf, caption = render_crypto(data)
+async def handle_markets_unified(chat, bot) -> None:
+    """Fetch all market data and send unified card."""
+    market_data = await fetch_all_markets()
+    forex_data = await fetch_forex()
+    crypto_data = await fetch_crypto()
+    gold_data = await fetch_gold()
+
+    png_buf, caption = render_markets_unified(market_data, forex_data, crypto_data, gold_data)
 
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Refresh", callback_data="refresh:crypto:")
+        InlineKeyboardButton("Refresh", callback_data="refresh:markets:")
     ]])
     await bot.send_photo(
         chat_id=chat.id,
@@ -174,23 +176,6 @@ async def handle_trains(from_crs: str, to_crs: str, chat, bot) -> None:
     )
 
 
-async def handle_gold(chat, bot) -> None:
-    """Fetch gold/silver prices and send card."""
-    data = await fetch_gold()
-    png_buf, caption = render_gold(data)
-
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Refresh", callback_data="refresh:gold:")
-    ]])
-    await bot.send_photo(
-        chat_id=chat.id,
-        photo=png_buf,
-        caption=caption,
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard,
-    )
-
-
 async def handle_status(chat, bot) -> None:
     """Fetch infrastructure status and send card."""
     data = await fetch_status()
@@ -198,67 +183,6 @@ async def handle_status(chat, bot) -> None:
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("Refresh", callback_data="refresh:status:")
-    ]])
-    await bot.send_photo(
-        chat_id=chat.id,
-        photo=png_buf,
-        caption=caption,
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard,
-    )
-
-
-async def handle_markets(region: str, chat, bot) -> None:
-    """Fetch stock market data and send card."""
-    if region == "us":
-        data = await fetch_us_markets()
-    elif region == "uk":
-        data = await fetch_uk_markets()
-    else:
-        data = await fetch_all_markets()
-
-    png_buf, caption = render_markets(data)
-
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Refresh", callback_data=f"refresh:markets:{region}")
-    ]])
-    await bot.send_photo(
-        chat_id=chat.id,
-        photo=png_buf,
-        caption=caption,
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard,
-    )
-
-
-async def handle_forex(chat, bot) -> None:
-    """Fetch forex rates and send card."""
-    data = await fetch_forex()
-    png_buf, caption = render_forex(data)
-
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Refresh", callback_data="refresh:forex:")
-    ]])
-    await bot.send_photo(
-        chat_id=chat.id,
-        photo=png_buf,
-        caption=caption,
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard,
-    )
-
-
-async def handle_world(chat, bot) -> None:
-    """Fetch combined world snapshot and send card."""
-    market_data = await fetch_all_markets()
-    forex_data = await fetch_forex()
-    crypto_data = await fetch_crypto()
-    gold_data = await fetch_gold()
-
-    png_buf, caption = render_world(market_data, forex_data, crypto_data, gold_data)
-
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Refresh", callback_data="refresh:world:")
     ]])
     await bot.send_photo(
         chat_id=chat.id,
@@ -289,9 +213,10 @@ async def refresh_dispatch(category: str, params: str, chat, bot) -> None:
     if category == "weather":
         _clear_caches(fetch_weather)
         await handle_weather(params or None, chat, bot)
-    elif category == "crypto":
-        _clear_caches(fetch_crypto)
-        await handle_crypto(chat, bot)
+    elif category in ("markets", "world", "crypto", "gold", "forex"):
+        _clear_caches(fetch_all_markets, fetch_us_markets, fetch_uk_markets,
+                       fetch_forex, fetch_crypto, fetch_gold)
+        await handle_markets_unified(chat, bot)
     elif category == "trains":
         _clear_caches(fetch_trains)
         parts = params.split(":") if params else []
@@ -299,24 +224,8 @@ async def refresh_dispatch(category: str, params: str, chat, bot) -> None:
             await handle_trains(parts[0], parts[1], chat, bot)
         else:
             await handle_trains(DEFAULT_FROM, DEFAULT_TO, chat, bot)
-    elif category == "gold":
-        _clear_caches(fetch_gold)
-        await handle_gold(chat, bot)
     elif category == "status":
         _clear_caches(fetch_status)
         await handle_status(chat, bot)
-    elif category == "markets":
-        _clear_caches(fetch_us_markets, fetch_uk_markets, fetch_all_markets)
-        region = params or "world"
-        if region == "world":
-            await handle_world(chat, bot)
-        else:
-            await handle_markets(region, chat, bot)
-    elif category == "forex":
-        _clear_caches(fetch_forex)
-        await handle_forex(chat, bot)
-    elif category == "world":
-        _clear_caches(fetch_all_markets, fetch_forex, fetch_crypto, fetch_gold)
-        await handle_world(chat, bot)
     else:
         log.warning("Unknown refresh category: %s", category)

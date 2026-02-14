@@ -19,13 +19,9 @@ from dispatcher import (
     extract_weather_location,
     extract_stations,
     handle_weather,
-    handle_crypto,
+    handle_markets_unified,
     handle_trains,
-    handle_gold,
     handle_status,
-    handle_markets,
-    handle_forex,
-    handle_world,
 )
 from dispatcher.apis import DispatchError
 from dispatcher.apis.infra import (
@@ -280,10 +276,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/memories \\[category|query] — List or search memories\n\n"
         "*Data Cards*\n"
         "/weather \\[location] — Weather card\n"
-        "/crypto — Crypto prices\n"
-        "/markets \\[us|uk] — Stock market indices\n"
-        "/gold — Gold & silver prices\n"
-        "/forex — Forex rates\n"
+        "/markets — Indices, crypto, metals, FX\n"
         "/trains \\[from] \\[to] — Train departures\n"
         "/nodes — Infrastructure status\n\n"
         "*Email & Follow\\-ups*\n"
@@ -320,18 +313,6 @@ async def cmd_weather_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @authorized
-async def cmd_crypto_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /crypto."""
-    try:
-        await handle_crypto(update.effective_chat, context.bot)
-    except DispatchError as e:
-        await update.message.reply_text(f"\u26a0\ufe0f {e}")
-    except Exception:
-        log.exception("Crypto command error")
-        await update.message.reply_text("Failed to fetch crypto data.")
-
-
-@authorized
 async def cmd_trains_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /trains [from] [to]."""
     args = context.args or []
@@ -355,46 +336,15 @@ async def cmd_trains_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @authorized
-async def cmd_gold_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /gold."""
-    try:
-        await handle_gold(update.effective_chat, context.bot)
-    except DispatchError as e:
-        await update.message.reply_text(f"\u26a0\ufe0f {e}")
-    except Exception:
-        log.exception("Gold command error")
-        await update.message.reply_text("Failed to fetch gold data.")
-
-
-@authorized
 async def cmd_markets_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /markets [us|uk|world]."""
-    args = context.args or []
-    region = args[0].lower() if args else "world"
-    if region not in ("us", "uk", "world"):
-        region = "world"
+    """Handle /markets — unified markets card."""
     try:
-        if region == "world":
-            await handle_world(update.effective_chat, context.bot)
-        else:
-            await handle_markets(region, update.effective_chat, context.bot)
+        await handle_markets_unified(update.effective_chat, context.bot)
     except DispatchError as e:
         await update.message.reply_text(f"\u26a0\ufe0f {e}")
     except Exception:
         log.exception("Markets command error")
         await update.message.reply_text("Failed to fetch market data.")
-
-
-@authorized
-async def cmd_forex_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /forex."""
-    try:
-        await handle_forex(update.effective_chat, context.bot)
-    except DispatchError as e:
-        await update.message.reply_text(f"\u26a0\ufe0f {e}")
-    except Exception:
-        log.exception("Forex command error")
-        await update.message.reply_text("Failed to fetch forex data.")
 
 
 @authorized
