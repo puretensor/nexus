@@ -51,7 +51,7 @@ from db import (
     list_scheduled_tasks,
     delete_scheduled_task,
 )
-from engine import call_streaming, split_message
+from engine import call_streaming, split_message, get_model_display
 from channels.telegram.streaming import StreamingEditor
 from handlers.file_output import scan_and_send_outputs
 from handlers.summaries import maybe_generate_summary
@@ -139,14 +139,14 @@ async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_opus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     update_model(chat_id, "opus")
-    await update.message.reply_text("Switched to Opus 4.6.")
+    await update.message.reply_text(f"Switched to {get_model_display('opus')}.")
 
 
 @authorized
 async def cmd_sonnet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     update_model(chat_id, "sonnet")
-    await update.message.reply_text("Switched to Sonnet.")
+    await update.message.reply_text(f"Switched to {get_model_display('sonnet')}.")
 
 
 @authorized
@@ -202,8 +202,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/session delete <name> — Delete a session\n"
         "/history — List archived sessions\n"
         "/resume <n> — Restore archived session by number\n"
-        "/opus — Switch to Opus 4.6\n"
-        "/sonnet — Switch to Sonnet (default)\n"
+        "/opus — Switch to primary model\n"
+        "/sonnet — Switch to default model\n"
         "/voice \\[on|off] — Toggle voice responses\n"
         "/status — Show current session info\n\n"
         "*Scheduled Tasks & Reminders*\n"
@@ -391,7 +391,7 @@ async def cmd_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = ["Sessions:"]
     for s in sessions:
         arrow = "\u2192 " if s["name"] == current_name else "  "
-        model_label = "Opus" if s["model"] == "opus" else "Sonnet"
+        model_label = get_model_display(s["model"])
         msg_count = s["message_count"] or 0
         summary_part = ""
         if s.get("summary"):
@@ -1044,7 +1044,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             prompt = reply_ctx + user_text
 
             # Acknowledgment message
-            model_label = "Opus 4.6" if model == "opus" else "Sonnet"
+            model_label = get_model_display(model)
             if session_id:
                 ack = f"Processing... ({model_label}, msg #{msg_count + 1})"
             else:
@@ -1179,7 +1179,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_ctx = _build_reply_context(update.message)
             prompt = reply_ctx + transcript
 
-            model_label = "Opus 4.6" if model == "opus" else "Sonnet"
+            model_label = get_model_display(model)
             await update.message.reply_text(f"Processing with {model_label}...")
 
             # Build extra system prompt for voice mode

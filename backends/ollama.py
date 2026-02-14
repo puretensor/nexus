@@ -27,6 +27,9 @@ class OllamaBackend:
     def name(self) -> str:
         return "ollama"
 
+    def get_model_display(self, model: str) -> str:
+        return self._default_model
+
     @property
     def supports_streaming(self) -> bool:
         return True

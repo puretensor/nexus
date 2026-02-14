@@ -26,6 +26,9 @@ class OpenAICompatBackend:
         self._api_key = OPENAI_COMPAT_KEY
         self._default_model = OPENAI_COMPAT_MODEL
 
+    def get_model_display(self, model: str) -> str:
+        return self._default_model
+
     @property
     def name(self) -> str:
         return "openai_compat"

@@ -19,6 +19,9 @@ class GeminiCLIBackend:
         from config import GEMINI_BIN
         self._bin = GEMINI_BIN
 
+    def get_model_display(self, model: str) -> str:
+        return "Gemini CLI"
+
     @property
     def name(self) -> str:
         return "gemini_cli"

@@ -29,6 +29,10 @@ class ClaudeCodeBackend:
     def supports_sessions(self) -> bool:
         return True
 
+    def get_model_display(self, model: str) -> str:
+        _LABELS = {"opus": "Opus 4.6", "sonnet": "Sonnet 4.5", "haiku": "Haiku 4.5"}
+        return _LABELS.get(model, model)
+
     def call_sync(
         self,
         prompt: str,

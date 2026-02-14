@@ -19,6 +19,9 @@ class CodexCLIBackend:
         from config import CODEX_BIN
         self._bin = CODEX_BIN
 
+    def get_model_display(self, model: str) -> str:
+        return "Codex CLI"
+
     @property
     def name(self) -> str:
         return "codex_cli"

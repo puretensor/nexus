@@ -26,6 +26,10 @@ class AnthropicAPIBackend:
     def name(self) -> str:
         return "anthropic_api"
 
+    def get_model_display(self, model: str) -> str:
+        _LABELS = {"opus": "Opus 4.6", "sonnet": "Sonnet 4.5", "haiku": "Haiku 4.5"}
+        return _LABELS.get(model, model)
+
     @property
     def supports_streaming(self) -> bool:
         return True

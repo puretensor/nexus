@@ -192,6 +192,19 @@ async def _read_stream(proc, on_progress=None, streaming_editor=None) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def get_model_display(model: str = "sonnet") -> str:
+    """Return a human-readable label for the current backend + model.
+
+    E.g. 'Sonnet 4.5' for claude_code, 'qwen3:30b-a3b' for ollama.
+    """
+    from backends import get_backend
+
+    backend = get_backend()
+    if hasattr(backend, "get_model_display"):
+        return backend.get_model_display(model)
+    return f"{backend.name}:{model}"
+
+
 def call_sync(
     prompt: str,
     model: str = "sonnet",
