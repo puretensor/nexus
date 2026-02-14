@@ -1108,7 +1108,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             # Acknowledgment message
             model_label = get_model_display(model)
-            if session_id:
+            if session_id or msg_count > 0:
                 ack = f"Processing... ({model_label}, msg #{msg_count + 1})"
             else:
                 ack = f"Starting new session... ({model_label})"
