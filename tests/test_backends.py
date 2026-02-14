@@ -584,6 +584,55 @@ class TestGeminiCLIBackend:
 
         assert "error" in result["result"].lower()
 
+    def test_call_sync_passes_system_prompt(self):
+        """call_sync should inject system_prompt into the prompt sent to CLI."""
+        backend = GeminiCLIBackend()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"response": "ok"})
+        mock_result.stderr = ""
+
+        with patch("backends.gemini_cli.subprocess.run", return_value=mock_result) as mock_run:
+            backend.call_sync("hello", system_prompt="You are PureClaw", memory_context="infra notes")
+            cmd = mock_run.call_args[0][0]
+            # The prompt arg (after -p) should contain system context
+            idx = cmd.index("-p")
+            prompt_arg = cmd[idx + 1]
+            assert "<system>" in prompt_arg
+            assert "You are PureClaw" in prompt_arg
+            assert "infra notes" in prompt_arg
+            assert "hello" in prompt_arg
+
+    def test_call_sync_no_system_prompt(self):
+        """call_sync should pass bare prompt when no system_prompt."""
+        backend = GeminiCLIBackend()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"response": "ok"})
+        mock_result.stderr = ""
+
+        with patch("backends.gemini_cli.subprocess.run", return_value=mock_result) as mock_run:
+            backend.call_sync("hello")
+            cmd = mock_run.call_args[0][0]
+            idx = cmd.index("-p")
+            prompt_arg = cmd[idx + 1]
+            assert prompt_arg == "hello"
+            assert "<system>" not in prompt_arg
+
+    def test_build_prompt_helper(self):
+        """_build_prompt should wrap context in <system> tags."""
+        backend = GeminiCLIBackend()
+        result = backend._build_prompt("user msg", system_prompt="sys", memory_context="mem")
+        assert result.startswith("<system>")
+        assert "sys" in result
+        assert "mem" in result
+        assert result.endswith("user msg")
+
+    def test_build_prompt_no_context(self):
+        """_build_prompt should return bare message when no context."""
+        backend = GeminiCLIBackend()
+        assert backend._build_prompt("hello") == "hello"
+
 
 # ---------------------------------------------------------------------------
 # CodexCLIBackend
@@ -683,6 +732,53 @@ class TestCodexCLIBackend:
             result = backend.call_sync("test")
 
         assert "error" in result["result"].lower()
+
+    def test_call_sync_passes_system_prompt(self):
+        """call_sync should inject system_prompt into the prompt sent to CLI."""
+        backend = CodexCLIBackend()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"type": "message", "role": "assistant", "content": "ok"})
+        mock_result.stderr = ""
+
+        with patch("backends.codex_cli.subprocess.run", return_value=mock_result) as mock_run:
+            backend.call_sync("hello", system_prompt="You are PureClaw", memory_context="infra notes")
+            cmd = mock_run.call_args[0][0]
+            # The prompt is the 3rd arg (after "exec")
+            prompt_arg = cmd[2]
+            assert "<system>" in prompt_arg
+            assert "You are PureClaw" in prompt_arg
+            assert "infra notes" in prompt_arg
+            assert "hello" in prompt_arg
+
+    def test_call_sync_no_system_prompt(self):
+        """call_sync should pass bare prompt when no system_prompt."""
+        backend = CodexCLIBackend()
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps({"type": "message", "role": "assistant", "content": "ok"})
+        mock_result.stderr = ""
+
+        with patch("backends.codex_cli.subprocess.run", return_value=mock_result) as mock_run:
+            backend.call_sync("hello")
+            cmd = mock_run.call_args[0][0]
+            prompt_arg = cmd[2]
+            assert prompt_arg == "hello"
+            assert "<system>" not in prompt_arg
+
+    def test_build_prompt_helper(self):
+        """_build_prompt should wrap context in <system> tags."""
+        backend = CodexCLIBackend()
+        result = backend._build_prompt("user msg", system_prompt="sys", memory_context="mem")
+        assert result.startswith("<system>")
+        assert "sys" in result
+        assert "mem" in result
+        assert result.endswith("user msg")
+
+    def test_build_prompt_no_context(self):
+        """_build_prompt should return bare message when no context."""
+        backend = CodexCLIBackend()
+        assert backend._build_prompt("hello") == "hello"
 
 
 # ---------------------------------------------------------------------------

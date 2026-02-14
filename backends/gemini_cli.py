@@ -23,6 +23,30 @@ class GeminiCLIBackend:
     def get_model_display(self, model: str) -> str:
         return f"Gemini CLI ({self._model})" if self._model else "Gemini CLI"
 
+    @staticmethod
+    def _build_prompt(
+        user_message: str,
+        system_prompt: str | None = None,
+        memory_context: str | None = None,
+        extra_system_prompt: str | None = None,
+    ) -> str:
+        """Prepend system context to the user message.
+
+        Gemini CLI has no --system-prompt flag, so we inject context
+        as a <system> block before the user message.
+        """
+        context_parts = []
+        if system_prompt:
+            context_parts.append(system_prompt)
+        if memory_context:
+            context_parts.append(memory_context)
+        if extra_system_prompt:
+            context_parts.append(extra_system_prompt)
+        if not context_parts:
+            return user_message
+        context = "\n\n".join(context_parts)
+        return f"<system>\n{context}\n</system>\n\n{user_message}"
+
     @property
     def name(self) -> str:
         return "gemini_cli"
@@ -53,7 +77,8 @@ class GeminiCLIBackend:
 
         Returns {"result": str, "session_id": str | None}
         """
-        cmd = [self._bin, "-p", prompt, "--output-format", "json", "--yolo"]
+        full_prompt = self._build_prompt(prompt, system_prompt, memory_context)
+        cmd = [self._bin, "-p", full_prompt, "--output-format", "json", "--yolo"]
         if self._model:
             cmd.extend(["-m", self._model])
         if session_id:
@@ -107,7 +132,8 @@ class GeminiCLIBackend:
 
         Returns {"result": str, "session_id": str | None, "written_files": list}
         """
-        cmd = [self._bin, "-p", message, "--output-format", "stream-json", "--yolo"]
+        full_prompt = self._build_prompt(message, system_prompt, memory_context, extra_system_prompt)
+        cmd = [self._bin, "-p", full_prompt, "--output-format", "stream-json", "--yolo"]
         if self._model:
             cmd.extend(["-m", self._model])
         if session_id:
