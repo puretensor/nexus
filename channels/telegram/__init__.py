@@ -23,8 +23,8 @@ class TelegramChannel(Channel):
         from channels.telegram.commands import (
             cmd_new, cmd_opus, cmd_sonnet, cmd_ollama, cmd_backend,
             cmd_voice, cmd_status, cmd_help,
-            cmd_weather_card, cmd_crypto_card, cmd_trains_card,
-            cmd_gold_card, cmd_markets_card, cmd_forex_card, cmd_nodes_card,
+            cmd_weather_card, cmd_trains_card,
+            cmd_markets_card, cmd_nodes_card,
             cmd_session, cmd_history, cmd_resume,
             cmd_schedule, cmd_remind, cmd_cancel,
             cmd_remember, cmd_forget, cmd_memories,
@@ -84,10 +84,7 @@ class TelegramChannel(Channel):
 
         # Data card commands
         self.app.add_handler(CommandHandler("weather", cmd_weather_card))
-        self.app.add_handler(CommandHandler("crypto", cmd_crypto_card))
         self.app.add_handler(CommandHandler("markets", cmd_markets_card))
-        self.app.add_handler(CommandHandler("gold", cmd_gold_card))
-        self.app.add_handler(CommandHandler("forex", cmd_forex_card))
         self.app.add_handler(CommandHandler("trains", cmd_trains_card))
         self.app.add_handler(CommandHandler("nodes", cmd_nodes_card))
 

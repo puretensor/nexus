@@ -283,6 +283,11 @@ def render_crypto(data: dict) -> tuple[io.BytesIO, str]:
     return card.finalize(), caption
 
 
+# Region ordering for unified card
+_REGION_ORDER = ["US", "UK", "EU", "Asia"]
+_REGION_LABELS = {"US": "US", "UK": "UK", "EU": "Europe", "Asia": "Asia"}
+
+
 def render_trains(data: dict) -> tuple[io.BytesIO, str]:
     """Render train departures card.
 
@@ -342,7 +347,7 @@ def render_trains(data: dict) -> tuple[io.BytesIO, str]:
 
 
 def render_gold(data: dict) -> tuple[io.BytesIO, str]:
-    """Render gold/silver card.
+    """Render gold/silver card (legacy, kept for potential standalone use).
 
     data keys: gold_usd, gold_gbp, gold_24h,
                silver_usd, silver_gbp, silver_24h
@@ -437,171 +442,180 @@ def render_status(data: dict) -> tuple[io.BytesIO, str]:
     return card.finalize(), caption
 
 
-def render_markets(data: dict) -> tuple[io.BytesIO, str]:
-    """Render stock market indices card.
+def render_markets_unified(market_data: dict, forex_data: dict, crypto_data: dict,
+                           gold_data: dict) -> tuple[io.BytesIO, str]:
+    """Render unified markets card — indices by region, commodities, crypto, FX.
 
-    data keys: title, indices (list of dicts with display_name, price,
-               change_pct, market_open, region, error?)
-
-    Returns (png_bytes, html_caption).
+    Replaces the old render_world/render_markets/render_gold/render_forex/render_crypto.
     """
-    indices = data.get("indices", [])
-    title = data.get("title", "Markets")
-    # header(52) + table_header(24) + rows(n*30) + bottom(20)
-    height = 52 + 24 + max(len(indices), 1) * 30 + 24
+    from datetime import datetime
 
-    card = CardRenderer(height, ACCENT_MARKETS)
-
-    # Count open/closed
-    open_count = sum(1 for i in indices if i.get("market_open"))
-    if open_count == len(indices):
-        subtitle = "Markets open"
-    elif open_count == 0:
-        subtitle = "Markets closed"
-    else:
-        subtitle = f"{open_count}/{len(indices)} open"
-    card.draw_header(title, subtitle)
-
-    # Table layout
-    cols = [("INDEX", PADDING), ("PRICE", 260), ("CHANGE", 400), ("", 520)]
-    card.draw_table_header(cols)
-
-    caption_parts = []
-    for idx in indices:
-        if idx.get("error"):
-            cells = [
-                (idx.get("display_name", "?"), PADDING, TEXT_SECONDARY),
-                ("unavailable", 260, TEXT_MUTED),
-                ("", 400, TEXT_MUTED),
-                ("", 520, TEXT_MUTED),
-            ]
-        else:
-            price = idx.get("price", 0)
-            chg = idx.get("change_pct", 0)
-            is_open = idx.get("market_open", False)
-            chg_color = GREEN if chg >= 0 else RED
-            name = idx.get("display_name", "?")
-            state_text = "" if is_open else "Closed"
-            state_color = TEXT_MUTED
-
-            cells = [
-                (name, PADDING, TEXT_PRIMARY),
-                (f"{price:,.0f}" if price >= 100 else f"{price:,.2f}", 260, TEXT_PRIMARY),
-                (f"{chg:+.2f}%", 400, chg_color),
-                (state_text, 520, state_color),
-            ]
-            caption_parts.append(f"{name} {chg:+.1f}%")
-
-        font = _font(13)
-        for text, x, color in cells:
-            card.draw.text((x, card.y), text, fill=color, font=font)
-        card.y += 30
-
-    caption = (
-        f"\U0001f4c8 <b>{title}</b>\n"
-        + " \u00b7 ".join(caption_parts[:4])
-    )
-    return card.finalize(), caption
-
-
-def render_forex(data: dict) -> tuple[io.BytesIO, str]:
-    """Render forex / currency pairs card.
-
-    data keys: pairs (list of dicts with pair, rate, change_pct)
-
-    Returns (png_bytes, html_caption).
-    """
-    pairs = data.get("pairs", [])
-    # header(52) + table_header(24) + rows(n*30) + bottom(20)
-    height = 52 + 24 + max(len(pairs), 1) * 30 + 24
-
-    card = CardRenderer(height, ACCENT_FOREX)
-    card.draw_header("Foreign Exchange", "ECB reference rates")
-
-    cols = [("PAIR", PADDING), ("RATE", 240), ("CHANGE", 420)]
-    card.draw_table_header(cols)
-
-    caption_parts = []
-    for pair in pairs:
-        rate = pair.get("rate", 0)
-        chg = pair.get("change_pct", 0)
-        chg_color = GREEN if chg >= 0 else RED
-        name = pair.get("pair", "?")
-
-        # Format rate — more decimals for small rates, fewer for big
-        if rate >= 100:
-            rate_str = f"{rate:,.2f}"
-        else:
-            rate_str = f"{rate:.4f}"
-
-        cells = [
-            (name, PADDING, TEXT_PRIMARY),
-            (rate_str, 240, TEXT_PRIMARY),
-            (f"{chg:+.2f}%", 420, chg_color),
-        ]
-        font = _font(14)
-        for text, x, color in cells:
-            card.draw.text((x, card.y), text, fill=color, font=font)
-        card.y += 30
-
-        caption_parts.append(f"{name} {rate_str}")
-
-    caption = (
-        f"\U0001f4b1 <b>Forex Rates</b>\n"
-        + " \u00b7 ".join(caption_parts[:3])
-    )
-    return card.finalize(), caption
-
-
-def render_world(market_data: dict, forex_data: dict, crypto_data: dict,
-                 gold_data: dict) -> tuple[io.BytesIO, str]:
-    """Render combined world markets snapshot card.
-
-    Combines market indices, top forex pairs, top crypto, and gold into one card.
-    """
     indices = market_data.get("indices", [])
     pairs = forex_data.get("pairs", [])[:3]  # Top 3 FX pairs
     coins = crypto_data.get("coins", [])[:2]  # BTC + ETH only
-    # header(52) + indices section(28 + n*28) + sep(16) + fx section(28 + n*28)
-    # + sep(16) + crypto section(28 + 2*28) + sep(16) + gold(28 + 2*28) + bottom(20)
-    n_idx = len(indices)
-    n_fx = len(pairs)
+
+    # Group indices by region
+    regions = {}
+    for idx in indices:
+        r = idx.get("region", "Other")
+        regions.setdefault(r, []).append(idx)
+
+    # Count open markets (across all indices)
+    open_count = sum(1 for i in indices if i.get("market_open"))
+    total_count = len(indices)
+
+    # Calculate height: header(60) + region sections + separators + commodities + crypto + fx + padding
+    n_region_sections = sum(1 for r in _REGION_ORDER if r in regions)
+    n_idx_rows = sum(len(v) for v in regions.values())
+    n_commodities = 2  # gold + silver
     n_crypto = len(coins)
-    height = (52 + 28 + n_idx * 28 + 16 + 28 + n_fx * 28 + 16
-              + 28 + n_crypto * 28 + 16 + 28 + 2 * 28 + 24)
+    n_fx = len(pairs)
+
+    height = (
+        60                                        # header
+        + n_region_sections * 28                  # region headers
+        + n_idx_rows * 26                         # index rows
+        + (n_region_sections - 1) * 12            # separators between regions
+        + 12                                      # separator before commodities
+        + 28 + n_commodities * 26                 # commodities section
+        + 12                                      # separator
+        + 28 + n_crypto * 26                      # crypto section
+        + 12                                      # separator
+        + 28 + n_fx * 26                          # currencies section
+        + 24                                      # bottom padding
+    )
 
     card = CardRenderer(height, ACCENT_MARKETS)
 
-    # Count open markets
-    open_count = sum(1 for i in indices if i.get("market_open"))
-    card.draw_header("World Markets", f"{open_count}/{n_idx} markets open")
+    # Header with date
+    now = datetime.now()
+    date_str = now.strftime("%a %d %b")
+    if open_count == total_count:
+        subtitle = f"All markets open \u00b7 {date_str}"
+    elif open_count == 0:
+        subtitle = f"All markets closed \u00b7 {date_str}"
+    else:
+        subtitle = f"{open_count}/{total_count} markets open \u00b7 {date_str}"
+    card.draw_header("MARKETS", subtitle)
 
-    # --- Indices ---
-    card.draw_section_title("Stock Indices", ACCENT_MARKETS)
-    for idx in indices:
-        if idx.get("error"):
+    font_l = _font(13)
+    font_v = _font_bold(13)
+    font_section = _font_bold(14)
+    font_status = _font(12)
+
+    # --- Indices grouped by region ---
+    first_region = True
+    for region_key in _REGION_ORDER:
+        if region_key not in regions:
             continue
-        name = idx.get("display_name", "?")
-        price = idx.get("price", 0)
-        chg = idx.get("change_pct", 0)
-        is_open = idx.get("market_open", False)
-        chg_color = GREEN if chg >= 0 else RED
-        state = "" if is_open else " (Closed)"
 
-        label = f"{name}{state}"
-        value = f"{price:,.0f}  {chg:+.2f}%"
+        if not first_region:
+            card.y += 4
+            card.draw.line(
+                [(PADDING, card.y), (card.width - PADDING, card.y)],
+                fill=TEXT_MUTED, width=1,
+            )
+            card.y += 8
 
-        font_l = _font(13)
-        font_v = _font_bold(13)
-        card.draw.text((PADDING, card.y), label, fill=TEXT_PRIMARY, font=font_l)
+        region_indices = regions[region_key]
+        region_open = any(i.get("market_open") for i in region_indices)
+        dot_color = GREEN if region_open else TEXT_MUTED
+        status_text = "OPEN" if region_open else "CLOSED"
+        status_color = GREEN if region_open else TEXT_MUTED
+        region_label = _REGION_LABELS.get(region_key, region_key)
+
+        # Region header: dot + label (left), OPEN/CLOSED (right)
+        card.draw_status_dot(PADDING + 5, card.y + 8, dot_color)
+        card.draw.text((PADDING + 16, card.y), region_label, fill=TEXT_PRIMARY, font=font_section)
+        bbox = card.draw.textbbox((0, 0), status_text, font=font_status)
+        sw = bbox[2] - bbox[0]
+        card.draw.text((card.width - PADDING - sw, card.y + 2), status_text, fill=status_color, font=font_status)
+        card.y += 28
+
+        # Index rows
+        for idx in region_indices:
+            if idx.get("error"):
+                card.draw.text((PADDING + 16, card.y), idx.get("display_name", "?"), fill=TEXT_MUTED, font=font_l)
+                bbox = card.draw.textbbox((0, 0), "unavailable", font=font_l)
+                uw = bbox[2] - bbox[0]
+                card.draw.text((card.width - PADDING - uw, card.y), "unavailable", fill=TEXT_MUTED, font=font_l)
+                card.y += 26
+                continue
+
+            name = idx.get("display_name", "?")
+            price = idx.get("price", 0)
+            chg = idx.get("change_pct", 0)
+            chg_color = GREEN if chg >= 0 else RED
+
+            price_str = f"{price:,.0f}" if price >= 100 else f"{price:,.2f}"
+            value = f"{price_str}    {chg:+.2f}%"
+
+            card.draw.text((PADDING + 16, card.y), name, fill=TEXT_PRIMARY, font=font_l)
+            bbox = card.draw.textbbox((0, 0), value, font=font_v)
+            vw = bbox[2] - bbox[0]
+            card.draw.text((card.width - PADDING - vw, card.y), value, fill=chg_color, font=font_v)
+            card.y += 26
+
+        first_region = False
+
+    # --- Commodities ---
+    card.y += 4
+    card.draw.line(
+        [(PADDING, card.y), (card.width - PADDING, card.y)],
+        fill=TEXT_MUTED, width=1,
+    )
+    card.y += 8
+    card.draw.text((PADDING, card.y), "Commodities", fill=ACCENT_GOLD, font=font_section)
+    card.y += 28
+
+    for metal, key in [("Gold", "gold_usd"), ("Silver", "silver_usd")]:
+        price = gold_data.get(key, 0)
+        chg = gold_data.get(key.replace("_usd", "_24h"), 0)
+        chg_color = GREEN if chg >= 0 else RED if chg else TEXT_PRIMARY
+
+        chg_str = f"    {chg:+.1f}%" if chg else ""
+        value = f"${price:,.2f}{chg_str}"
+
+        card.draw.text((PADDING + 16, card.y), metal, fill=TEXT_PRIMARY, font=font_l)
         bbox = card.draw.textbbox((0, 0), value, font=font_v)
         vw = bbox[2] - bbox[0]
         card.draw.text((card.width - PADDING - vw, card.y), value, fill=chg_color, font=font_v)
-        card.y += 28
+        card.y += 26
 
-    # --- FX ---
-    card.draw_separator()
-    card.draw_section_title("Currencies", ACCENT_FOREX)
+    # --- Crypto ---
+    card.y += 4
+    card.draw.line(
+        [(PADDING, card.y), (card.width - PADDING, card.y)],
+        fill=TEXT_MUTED, width=1,
+    )
+    card.y += 8
+    card.draw.text((PADDING, card.y), "Crypto", fill=ACCENT_CRYPTO, font=font_section)
+    card.y += 28
+
+    for coin in coins:
+        ticker = coin.get("ticker", "?")
+        usd = coin.get("usd", 0)
+        chg = coin.get("change_24h", 0)
+        chg_color = GREEN if chg >= 0 else RED
+
+        value = f"${usd:,.0f}    {chg:+.1f}%"
+
+        card.draw.text((PADDING + 16, card.y), ticker, fill=TEXT_PRIMARY, font=font_l)
+        bbox = card.draw.textbbox((0, 0), value, font=font_v)
+        vw = bbox[2] - bbox[0]
+        card.draw.text((card.width - PADDING - vw, card.y), value, fill=chg_color, font=font_v)
+        card.y += 26
+
+    # --- Currencies ---
+    card.y += 4
+    card.draw.line(
+        [(PADDING, card.y), (card.width - PADDING, card.y)],
+        fill=TEXT_MUTED, width=1,
+    )
+    card.y += 8
+    card.draw.text((PADDING, card.y), "Currencies", fill=ACCENT_FOREX, font=font_section)
+    card.y += 28
+
     for pair in pairs:
         name = pair.get("pair", "?")
         rate = pair.get("rate", 0)
@@ -609,53 +623,16 @@ def render_world(market_data: dict, forex_data: dict, crypto_data: dict,
         chg_color = GREEN if chg >= 0 else RED
         rate_str = f"{rate:.4f}" if rate < 100 else f"{rate:,.2f}"
 
-        font_l = _font(13)
-        font_v = _font_bold(13)
-        card.draw.text((PADDING, card.y), name, fill=TEXT_PRIMARY, font=font_l)
-        value = f"{rate_str}  {chg:+.2f}%"
+        value = f"{rate_str}    {chg:+.2f}%"
+
+        card.draw.text((PADDING + 16, card.y), name, fill=TEXT_PRIMARY, font=font_l)
         bbox = card.draw.textbbox((0, 0), value, font=font_v)
         vw = bbox[2] - bbox[0]
         card.draw.text((card.width - PADDING - vw, card.y), value, fill=chg_color, font=font_v)
-        card.y += 28
-
-    # --- Crypto ---
-    card.draw_separator()
-    card.draw_section_title("Crypto", ACCENT_CRYPTO)
-    for coin in coins:
-        ticker = coin.get("ticker", "?")
-        usd = coin.get("usd", 0)
-        chg = coin.get("change_24h", 0)
-        chg_color = GREEN if chg >= 0 else RED
-
-        font_l = _font(13)
-        font_v = _font_bold(13)
-        card.draw.text((PADDING, card.y), f"{coin.get('name', '?')} ({ticker})", fill=TEXT_PRIMARY, font=font_l)
-        value = f"${usd:,.0f}  {chg:+.1f}%"
-        bbox = card.draw.textbbox((0, 0), value, font=font_v)
-        vw = bbox[2] - bbox[0]
-        card.draw.text((card.width - PADDING - vw, card.y), value, fill=chg_color, font=font_v)
-        card.y += 28
-
-    # --- Gold ---
-    card.draw_separator()
-    card.draw_section_title("Metals", ACCENT_GOLD)
-    for metal, key in [("Gold", "gold_usd"), ("Silver", "silver_usd")]:
-        price = gold_data.get(key, 0)
-        chg = gold_data.get(key.replace("_usd", "_24h"), 0)
-        chg_color = GREEN if chg >= 0 else RED
-
-        font_l = _font(13)
-        font_v = _font_bold(13)
-        card.draw.text((PADDING, card.y), metal, fill=TEXT_PRIMARY, font=font_l)
-        chg_str = f"  {chg:+.1f}%" if chg else ""
-        value = f"${price:,.2f}/oz{chg_str}"
-        bbox = card.draw.textbbox((0, 0), value, font=font_v)
-        vw = bbox[2] - bbox[0]
-        card.draw.text((card.width - PADDING - vw, card.y), value, fill=chg_color if chg else TEXT_PRIMARY, font=font_v)
-        card.y += 28
+        card.y += 26
 
     caption = (
-        f"\U0001f30d <b>World Markets Snapshot</b>\n"
-        f"{open_count}/{n_idx} markets open"
+        f"\U0001f30d <b>Markets</b>\n"
+        f"{open_count}/{total_count} markets open"
     )
     return card.finalize(), caption
