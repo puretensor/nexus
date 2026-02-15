@@ -151,78 +151,71 @@ class TestGetVoiceSystemPromptAddition:
 
 
 # ---------------------------------------------------------------------------
-# text_to_voice_note
+# text_to_voice_note (uses local HAL TTS API via aiohttp)
 # ---------------------------------------------------------------------------
+
+def _mock_aiohttp_session(status=200, body=b"fake wav data"):
+    """Create a mock aiohttp session for TTS API calls."""
+    mock_resp = AsyncMock()
+    mock_resp.status = status
+    mock_resp.read = AsyncMock(return_value=body)
+    mock_resp.text = AsyncMock(return_value="error")
+    mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.post = MagicMock(return_value=mock_resp)
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+    return mock_session
+
 
 class TestTextToVoiceNote:
 
     @pytest.mark.asyncio
-    async def test_no_edge_tts_returns_none(self):
-        """When edge_tts import fails, returns None."""
-        with patch.dict("sys.modules", {"edge_tts": None}):
-            # Force reimport to trigger ImportError
-            import importlib
-            import handlers.voice_tts as vt_mod
-            # Directly test with a patched import
-            original_import = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+    async def test_api_connection_failure_returns_none(self):
+        """When TTS API is unreachable, returns None."""
+        import aiohttp as aiohttp_mod
+        mock_session = MagicMock()
+        mock_session.post = MagicMock(side_effect=aiohttp_mod.ClientError("Connection refused"))
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
 
-            async def _test_no_edge():
-                # Simulate by patching the import inside the function
-                with patch("builtins.__import__", side_effect=ImportError("No module named 'edge_tts'")):
-                    result = await text_to_voice_note("Hello world")
-                return result
-
-            # The function catches ImportError internally, so we mock at module level
-            with patch.object(vt_mod, "text_to_voice_note", wraps=vt_mod.text_to_voice_note):
-                # Patch the edge_tts import inside the function
-                import builtins
-                real_import = builtins.__import__
-                def mock_import(name, *args, **kwargs):
-                    if name == "edge_tts":
-                        raise ImportError("No module named 'edge_tts'")
-                    return real_import(name, *args, **kwargs)
-
-                with patch("builtins.__import__", side_effect=mock_import):
-                    result = await text_to_voice_note("Hello world")
-                assert result is None
+        with patch("handlers.voice_tts.aiohttp.ClientSession", return_value=mock_session):
+            result = await text_to_voice_note("Hello world")
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_empty_text_returns_none(self):
         """Empty or whitespace text returns None."""
-        # _clean_for_tts will strip to empty, so text_to_voice_note returns None
-        mock_edge = MagicMock()
-        with patch.dict("sys.modules", {"edge_tts": mock_edge}):
-            result = await text_to_voice_note("   ")
+        result = await text_to_voice_note("   ")
         assert result is None
 
     @pytest.mark.asyncio
     async def test_success(self):
         """Successful TTS conversion returns OGG bytes."""
-        mock_communicate = MagicMock()
-
-        saved_path = {}
-        async def mock_save(path):
-            saved_path['path'] = path
-            Path(path).write_bytes(b"fake mp3 data")
-
-        mock_communicate.save = mock_save
-
-        mock_edge = MagicMock()
-        mock_edge.Communicate.return_value = mock_communicate
+        mock_session = _mock_aiohttp_session(200, b"fake wav data")
 
         mock_proc = AsyncMock()
         mock_proc.returncode = 0
 
+        saved_paths = {}
+        orig_write = Path.write_bytes
+
         async def mock_wait():
-            # Create ogg file from the known mp3 path
-            if 'path' in saved_path:
-                ogg_path = saved_path['path'].replace('.mp3', '.ogg')
-                Path(ogg_path).write_bytes(b"fake ogg data")
+            # Find the wav file and create corresponding ogg
+            import glob
+            import tempfile
+            tmp_dir = tempfile.gettempdir()
+            for f in Path(tmp_dir).glob("*.wav"):
+                ogg = str(f).replace(".wav", ".ogg")
+                Path(ogg).write_bytes(b"fake ogg data")
+                break
             return 0
 
         mock_proc.wait = mock_wait
 
-        with patch.dict("sys.modules", {"edge_tts": mock_edge}):
+        with patch("handlers.voice_tts.aiohttp.ClientSession", return_value=mock_session):
             with patch("handlers.voice_tts.asyncio.create_subprocess_exec",
                        new_callable=AsyncMock, return_value=mock_proc):
                 result = await text_to_voice_note("Hello world")
@@ -230,17 +223,19 @@ class TestTextToVoiceNote:
         assert result == b"fake ogg data"
 
     @pytest.mark.asyncio
+    async def test_api_error_returns_none(self):
+        """TTS API returning error status returns None."""
+        mock_session = _mock_aiohttp_session(500, b"Internal error")
+
+        with patch("handlers.voice_tts.aiohttp.ClientSession", return_value=mock_session):
+            result = await text_to_voice_note("Hello world")
+
+        assert result is None
+
+    @pytest.mark.asyncio
     async def test_ffmpeg_failure_returns_none(self):
         """ffmpeg returning non-zero exit code returns None."""
-        mock_communicate = MagicMock()
-
-        async def mock_save(path):
-            Path(path).write_bytes(b"fake mp3 data")
-
-        mock_communicate.save = mock_save
-
-        mock_edge = MagicMock()
-        mock_edge.Communicate.return_value = mock_communicate
+        mock_session = _mock_aiohttp_session(200, b"fake wav data")
 
         mock_proc = AsyncMock()
         mock_proc.returncode = 1
@@ -250,7 +245,7 @@ class TestTextToVoiceNote:
 
         mock_proc.wait = mock_wait
 
-        with patch.dict("sys.modules", {"edge_tts": mock_edge}):
+        with patch("handlers.voice_tts.aiohttp.ClientSession", return_value=mock_session):
             with patch("handlers.voice_tts.asyncio.create_subprocess_exec",
                        new_callable=AsyncMock, return_value=mock_proc):
                 result = await text_to_voice_note("Hello world")
@@ -260,15 +255,7 @@ class TestTextToVoiceNote:
     @pytest.mark.asyncio
     async def test_timeout_returns_none(self):
         """TTS conversion timeout returns None."""
-        mock_communicate = MagicMock()
-
-        async def mock_save(path):
-            Path(path).write_bytes(b"fake mp3 data")
-
-        mock_communicate.save = mock_save
-
-        mock_edge = MagicMock()
-        mock_edge.Communicate.return_value = mock_communicate
+        mock_session = _mock_aiohttp_session(200, b"fake wav data")
 
         mock_proc = AsyncMock()
 
@@ -278,7 +265,7 @@ class TestTextToVoiceNote:
 
         mock_proc.wait = mock_wait
 
-        with patch.dict("sys.modules", {"edge_tts": mock_edge}):
+        with patch("handlers.voice_tts.aiohttp.ClientSession", return_value=mock_session):
             with patch("handlers.voice_tts.asyncio.create_subprocess_exec",
                        new_callable=AsyncMock, return_value=mock_proc):
                 with patch("handlers.voice_tts.asyncio.wait_for",
@@ -291,38 +278,35 @@ class TestTextToVoiceNote:
     async def test_long_text_truncated(self):
         """Text over 3000 chars is truncated before TTS."""
         long_text = "Hello world. " * 500  # well over 3000 chars
-        mock_communicate = MagicMock()
 
-        saved_text = {}
-        async def mock_save(path):
-            Path(path).write_bytes(b"fake mp3 data")
+        captured_json = {}
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.read = AsyncMock(return_value=b"fake wav data")
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
 
-        mock_communicate.save = mock_save
-
-        mock_edge = MagicMock()
-        mock_edge.Communicate.return_value = mock_communicate
+        mock_session = MagicMock()
+        def capture_post(url, **kwargs):
+            captured_json.update(kwargs.get("json", {}))
+            return mock_resp
+        mock_session.post = capture_post
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
 
         mock_proc = AsyncMock()
         mock_proc.returncode = 0
-
         async def mock_wait():
             return 0
-
         mock_proc.wait = mock_wait
 
-        with patch.dict("sys.modules", {"edge_tts": mock_edge}):
+        with patch("handlers.voice_tts.aiohttp.ClientSession", return_value=mock_session):
             with patch("handlers.voice_tts.asyncio.create_subprocess_exec",
                        new_callable=AsyncMock, return_value=mock_proc):
-                # The function should still work (truncated) but ffmpeg won't create ogg
-                # so it will return None (no ogg file created)
-                # Let's make it create the ogg file
-                orig_exec = asyncio.create_subprocess_exec
                 result = await text_to_voice_note(long_text)
 
-        # Verify Communicate was called with truncated text
-        call_args = mock_edge.Communicate.call_args
-        text_arg = call_args[0][0]
-        assert len(text_arg) <= 3004  # 3000 + "..."
+        # Verify text was truncated
+        assert len(captured_json.get("text", "")) <= 3004  # 3000 + "..."
 
 
 # ---------------------------------------------------------------------------

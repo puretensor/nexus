@@ -1,4 +1,4 @@
-"""Voice TTS — convert Claude responses to voice notes using edge-tts."""
+"""Voice TTS — convert Claude responses to voice notes using local HAL 9000 voice clone."""
 
 import asyncio
 import logging
@@ -6,13 +6,15 @@ import re
 import tempfile
 from pathlib import Path
 
+import aiohttp
+
 log = logging.getLogger("nexus")
 
 # Per-chat voice mode state (in-memory, resets on restart)
 _voice_mode: dict[int, bool] = {}
 
-# Default TTS voice
-DEFAULT_VOICE = "en-GB-SoniaNeural"
+# Local TTS API (HAL 9000 voice via Qwen3-TTS daemon)
+TTS_API_URL = "http://127.0.0.1:5580/tts"
 
 
 def is_voice_mode(chat_id: int) -> bool:
@@ -54,38 +56,44 @@ def _clean_for_tts(text: str) -> str:
     return text
 
 
-async def text_to_voice_note(text: str, voice: str = DEFAULT_VOICE) -> bytes | None:
-    """Convert text to OGG voice note bytes using edge-tts.
+async def text_to_voice_note(text: str) -> bytes | None:
+    """Convert text to OGG voice note bytes using local HAL 9000 TTS.
 
     Returns OGG bytes or None on failure.
     """
-    try:
-        import edge_tts
-    except ImportError:
-        log.error("edge-tts not installed. Run: pip install edge-tts")
-        return None
-
     cleaned = _clean_for_tts(text)
     if not cleaned:
         return None
 
-    # Truncate very long text (edge-tts has limits)
+    # Truncate very long text
     if len(cleaned) > 3000:
         cleaned = cleaned[:3000] + "..."
 
-    tmp_path = None
+    wav_path = None
     ogg_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            tmp_path = tmp.name
+        # Request WAV from local HAL voice TTS daemon
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                TTS_API_URL,
+                json={"text": cleaned},
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    log.warning("TTS API returned %d: %s", resp.status, body[:200])
+                    return None
+                wav_data = await resp.read()
 
-        communicate = edge_tts.Communicate(cleaned, voice)
-        await communicate.save(tmp_path)
+        # Write WAV to temp file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            wav_path = tmp.name
+            tmp.write(wav_data)
 
-        # Convert MP3 to OGG (Telegram requires OGG for voice notes)
-        ogg_path = tmp_path.replace(".mp3", ".ogg")
+        # Convert WAV to OGG Opus (Telegram requires OGG for voice notes)
+        ogg_path = wav_path.replace(".wav", ".ogg")
         proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-i", tmp_path, "-c:a", "libopus", "-b:a", "64k",
+            "ffmpeg", "-i", wav_path, "-c:a", "libopus", "-b:a", "64k",
             "-y", ogg_path,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
@@ -102,14 +110,16 @@ async def text_to_voice_note(text: str, voice: str = DEFAULT_VOICE) -> bytes | N
     except asyncio.TimeoutError:
         log.error("TTS conversion timed out")
         return None
+    except aiohttp.ClientError as e:
+        log.error("TTS API connection failed: %s", e)
+        return None
     except Exception as e:
         log.error("TTS conversion failed: %s", e)
         return None
     finally:
-        # Ensure cleanup
-        if tmp_path:
+        if wav_path:
             try:
-                Path(tmp_path).unlink(missing_ok=True)
+                Path(wav_path).unlink(missing_ok=True)
             except Exception:
                 pass
         if ogg_path:
