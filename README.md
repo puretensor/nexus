@@ -15,18 +15,18 @@ PureClaw is a multi-engine agentic framework. Swap between any backend with a si
 
 | Backend | Type | Provider | Tool Use | Streaming | Cost |
 |---------|------|----------|----------|-----------|------|
-| `ollama` | Local | Any GGUF model | 6 built-in tools | Yes | Free |
-| `anthropic_api` | API | Anthropic | 6 built-in tools | Yes | Per-token |
-| `gemini_api` | API | Google Gemini | 6 built-in tools | Yes | Per-token |
-| `openai_compat` | API | ChatGPT, DeepSeek, Kimi 2.5, GLM 5, Grok, Mistral, vLLM | 6 built-in tools | Yes | Per-token |
+| `ollama` | Local | Any GGUF model | 7 tools (incl. web search) | Yes | Free |
+| `anthropic_api` | API | Anthropic | 7 tools (incl. web search) | Yes | Per-token |
+| `gemini_api` | API | Google Gemini | 7 tools (incl. web search) | Yes | Per-token |
+| `openai_compat` | API | ChatGPT, DeepSeek, Kimi 2.5, GLM 5, Grok, Mistral, vLLM | 7 tools (incl. web search) | Yes | Per-token |
 | `claude_code` | CLI | Claude Code | Full agentic | Yes | Subscription |
 | `gemini_cli` | CLI | Gemini CLI | Full agentic | Yes | Subscription |
 | `codex_cli` | CLI | Codex CLI | Full agentic | Yes | Subscription |
 
 **Three tiers:**
 
-- **Tier 1 -- Local-First:** Ollama runs on your hardware. Free, private, with 6 tools included (bash, read, write, edit, glob, grep). Your data never leaves your machine.
-- **Tier 2 -- API:** Anthropic, Gemini, and any OpenAI-compatible provider. Pay-per-token, no subscription, 6 built-in tools (same as Tier 1). Pure HTTP -- stdlib `urllib` for sync, `aiohttp` for async streaming.
+- **Tier 1 -- Local-First:** Ollama runs on your hardware. Free, private, with 7 tools included (bash, read, write, edit, glob, grep, web search). Your data never leaves your machine.
+- **Tier 2 -- API:** Anthropic, Gemini, and any OpenAI-compatible provider. Pay-per-token, no subscription, 7 built-in tools (same as Tier 1). Pure HTTP -- stdlib `urllib` for sync, `aiohttp` for async streaming.
 - **Tier 3 -- CLI:** Claude Code, Gemini CLI, Codex CLI. Subscription-based, full agentic tool use delegated to the CLI binary.
 
 ### Recommended Backends
@@ -34,8 +34,8 @@ PureClaw is a multi-engine agentic framework. Swap between any backend with a si
 For the best agentic experience:
 
 - **Claude Code (Sonnet/Opus)** -- Most reliable tool use, web search, file operations, and session continuity. The reference backend that PureClaw is developed against.
-- **Ollama (local)** -- Best for privacy and cost. Runs entirely on your hardware with 6 built-in tools. Models like Qwen 3, Llama 4, and DeepSeek R2 all work well.
-- **Anthropic API / Gemini API / OpenAI-compatible** -- Good middle ground. 6 built-in tools, pay-per-token, no subscription.
+- **Ollama (local)** -- Best for privacy and cost. Runs entirely on your hardware with 7 built-in tools. Models like Qwen 3, Llama 4, and DeepSeek R2 all work well.
+- **Anthropic API / Gemini API / OpenAI-compatible** -- Good middle ground. 7 built-in tools, pay-per-token, no subscription.
 
 **Note on Gemini CLI and Codex CLI:** These are third-party CLI tools with their own tool execution sandboxes. Their agentic capabilities (web search, code execution) are less mature than Claude Code and may produce errors during tool use. They work for basic conversation but are not recommended for tasks requiring reliable tool execution.
 
@@ -191,7 +191,7 @@ nexus/
 |     +-- ollama.py             # Ollama backend with tool use
 |     +-- gemini_cli.py         # Gemini CLI backend
 |     +-- codex_cli.py          # Codex CLI backend
-|     +-- tools.py              # Tool definitions + shared tool loop for all backends
+|     +-- tools.py              # 7 tools (bash, read, write, edit, glob, grep, web_search) + shared tool loop
 |     +-- __init__.py           # Backend factory (lazy singleton)
 |
 +-- channels/

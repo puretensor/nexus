@@ -34,8 +34,8 @@ with patch.dict("os.environ", {
 
 class TestToolSchemas:
 
-    def test_six_tools_defined(self):
-        assert len(TOOL_SCHEMAS) == 6
+    def test_seven_tools_defined(self):
+        assert len(TOOL_SCHEMAS) == 7
 
     def test_all_have_function_format(self):
         for schema in TOOL_SCHEMAS:
@@ -47,7 +47,7 @@ class TestToolSchemas:
 
     def test_tool_names(self):
         names = {s["function"]["name"] for s in TOOL_SCHEMAS}
-        assert names == {"bash", "read_file", "write_file", "edit_file", "glob", "grep"}
+        assert names == {"bash", "read_file", "write_file", "edit_file", "glob", "grep", "web_search"}
 
     def test_required_params(self):
         """Each tool has required params matching the spec."""
@@ -58,6 +58,7 @@ class TestToolSchemas:
             "edit_file": ["file_path", "old_string", "new_string"],
             "glob": ["pattern"],
             "grep": ["pattern"],
+            "web_search": ["query"],
         }
         for schema in TOOL_SCHEMAS:
             name = schema["function"]["name"]
