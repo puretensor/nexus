@@ -7,11 +7,15 @@ tools are disabled or the model doesn't emit tool calls.
 
 import json
 import logging
+import re
 import time
 import urllib.request
 import urllib.error
 
 log = logging.getLogger("nexus")
+
+# Strip <think>...</think> blocks from reasoning models (Qwen 3, DeepSeek R1, etc.)
+_THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 
 # Model name mapping: friendly name → Ollama model
 _MODEL_MAP = {
@@ -50,6 +54,11 @@ class OllamaBackend:
             self._cwd = CLAUDE_CWD
         except ImportError:
             self._cwd = "/home/puretensorai"
+        try:
+            from config import OLLAMA_NUM_PREDICT
+            self._num_predict = OLLAMA_NUM_PREDICT
+        except ImportError:
+            self._num_predict = 8192
 
     @property
     def name(self) -> str:
@@ -105,6 +114,15 @@ class OllamaBackend:
         from backends.tools import TOOL_SCHEMAS
         return TOOL_SCHEMAS
 
+    def _get_options(self) -> dict:
+        """Return Ollama options (num_predict etc.)."""
+        return {"num_predict": self._num_predict}
+
+    @staticmethod
+    def _strip_thinking(text: str) -> str:
+        """Remove <think>...</think> blocks from reasoning model output."""
+        return _THINK_RE.sub("", text).strip()
+
     # ------------------------------------------------------------------
     # Synchronous call with tool loop
     # ------------------------------------------------------------------
@@ -137,6 +155,7 @@ class OllamaBackend:
                 "model": model_id,
                 "messages": messages,
                 "stream": False,
+                "options": self._get_options(),
             }
             if tools:
                 payload["tools"] = tools
@@ -169,8 +188,9 @@ class OllamaBackend:
 
             if not tool_calls:
                 # No tool calls — we're done
+                clean = self._strip_thinking(content)
                 return {
-                    "result": content or "(empty response)",
+                    "result": clean or "(empty response)",
                     "session_id": None,
                     "written_files": written_files,
                 }
@@ -242,8 +262,9 @@ class OllamaBackend:
                 messages.append(assistant_msg)
 
                 if not tool_calls:
+                    clean = self._strip_thinking(assistant_msg.get("content", ""))
                     return {
-                        "result": assistant_msg.get("content", "") or "(empty response)",
+                        "result": clean or "(empty response)",
                         "session_id": None,
                         "written_files": written_files,
                     }
@@ -333,12 +354,14 @@ class OllamaBackend:
             "model": model_id,
             "messages": messages,
             "stream": True,
+            "options": self._get_options(),
         }
         if tools:
             payload["tools"] = tools
 
         content = ""
         tool_calls = None
+        in_thinking = False
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -359,6 +382,13 @@ class OllamaBackend:
                     text = msg.get("content", "")
                     if text:
                         content += text
+                        # Suppress <think>...</think> blocks from streaming output
+                        if "<think>" in text:
+                            in_thinking = True
+                        if in_thinking:
+                            if "</think>" in text:
+                                in_thinking = False
+                            continue
                         if streaming_editor:
                             await streaming_editor.add_text(text)
 
@@ -387,6 +417,7 @@ class OllamaBackend:
             "model": model_id,
             "messages": messages,
             "stream": True,
+            "options": self._get_options(),
         }
         if tools:
             payload["tools"] = tools
