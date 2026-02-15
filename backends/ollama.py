@@ -189,6 +189,27 @@ class OllamaBackend:
             if not tool_calls:
                 # No tool calls — we're done
                 clean = self._strip_thinking(content)
+                # Empty response with tools → model may not support tool protocol.
+                # Retry once without tools.
+                if not clean and tools and iteration == 0:
+                    log.info("Ollama: empty response with tools (sync), retrying without")
+                    messages.pop()  # remove empty assistant msg
+                    payload_retry = {
+                        "model": model_id, "messages": messages,
+                        "stream": False, "options": self._get_options(),
+                    }
+                    try:
+                        data = json.dumps(payload_retry).encode()
+                        req = urllib.request.Request(
+                            f"{self._base_url}/api/chat", data=data,
+                            headers={"Content-Type": "application/json"},
+                        )
+                        with urllib.request.urlopen(req, timeout=timeout) as resp:
+                            retry_result = json.loads(resp.read().decode())
+                        clean = self._strip_thinking(retry_result.get("message", {}).get("content", ""))
+                        messages.append({"role": "assistant", "content": clean})
+                    except Exception:
+                        pass
                 return {
                     "result": clean or "(empty response)",
                     "session_id": None,
@@ -259,15 +280,26 @@ class OllamaBackend:
                 assistant_msg, tool_calls = await self._stream_chat(
                     model_id, messages, tools, streaming_editor
                 )
-                messages.append(assistant_msg)
 
                 if not tool_calls:
                     clean = self._strip_thinking(assistant_msg.get("content", ""))
+                    # Empty response with tools → model may not support tool protocol.
+                    # Retry once without tools so every model works.
+                    if not clean and tools and iteration == 0:
+                        log.info("Ollama: empty response with tools, retrying without tools")
+                        messages.pop() if assistant_msg in messages else None
+                        assistant_msg, _ = await self._stream_chat(
+                            model_id, messages, None, streaming_editor
+                        )
+                        clean = self._strip_thinking(assistant_msg.get("content", ""))
+                    messages.append(assistant_msg)
                     return {
                         "result": clean or "(empty response)",
                         "session_id": None,
                         "written_files": written_files,
                     }
+
+                messages.append(assistant_msg)
 
                 # Execute tool calls
                 from backends.tools import execute_tool
