@@ -38,9 +38,9 @@ OPENAI_COMPAT_URL = os.environ.get("OPENAI_COMPAT_URL", "")
 OPENAI_COMPAT_KEY = os.environ.get("OPENAI_COMPAT_KEY", "")
 OPENAI_COMPAT_MODEL = os.environ.get("OPENAI_COMPAT_MODEL", "gpt-4o")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_API_MODEL = os.environ.get("GEMINI_API_MODEL", "gemini-2.5-flash")
+GEMINI_API_MODEL = os.environ.get("GEMINI_API_MODEL", "gemini-2.5-flash")  # API needs an explicit model
 GEMINI_BIN = os.environ.get("GEMINI_BIN") or shutil.which("gemini") or "/usr/bin/gemini"
-GEMINI_CLI_MODEL = os.environ.get("GEMINI_CLI_MODEL", "gemini-2.5-flash")
+GEMINI_CLI_MODEL = os.environ.get("GEMINI_CLI_MODEL", "")  # empty = use Gemini CLI's own default
 CODEX_BIN = os.environ.get("CODEX_BIN") or shutil.which("codex") or "/usr/bin/codex"
 CODEX_MODEL = os.environ.get("CODEX_MODEL", "")
 CODEX_CWD = os.environ.get("CODEX_CWD", "/home/puretensorai")

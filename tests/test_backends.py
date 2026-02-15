@@ -548,7 +548,7 @@ class TestGeminiCLIBackend:
             assert cmd[idx + 1] == "latest"
 
     def test_call_sync_model_flag(self):
-        """call_sync should pass -m flag for model selection."""
+        """call_sync should pass -m flag only when model is configured."""
         backend = GeminiCLIBackend()
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -558,7 +558,11 @@ class TestGeminiCLIBackend:
         with patch("backends.gemini_cli.subprocess.run", return_value=mock_result) as mock_run:
             backend.call_sync("test")
             cmd = mock_run.call_args[0][0]
-            assert "-m" in cmd
+            # -m flag only present when GEMINI_CLI_MODEL is set
+            if backend._model:
+                assert "-m" in cmd
+            else:
+                assert "-m" not in cmd
 
     def test_call_sync_handles_timeout(self):
         """call_sync should handle subprocess timeout."""
