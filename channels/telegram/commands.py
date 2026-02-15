@@ -159,7 +159,7 @@ async def cmd_sonnet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @authorized
 async def cmd_ollama(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Switch to Ollama backend (Qwen 3 235B local)."""
+    """Switch to Ollama backend (Qwen3-235B local)."""
     chat_id = update.effective_chat.id
     import config
     from backends import reset_backend
@@ -221,7 +221,7 @@ async def cmd_backend(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton(
-                label("Qwen 3 235B (local)", current == "ollama"),
+                label("Qwen3-235B (local)", current == "ollama"),
                 callback_data="backend:ollama:sonnet",
             ),
         ],
