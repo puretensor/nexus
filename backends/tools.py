@@ -1,7 +1,7 @@
 """Tool registry and shared tool loop for all backends.
 
-Provides six core tools matching Claude Code's toolset:
-bash, read_file, write_file, edit_file, glob, grep.
+Provides seven core tools matching Claude Code's toolset:
+bash, read_file, write_file, edit_file, glob, grep, web_search.
 
 Each tool has an OpenAI-compatible JSON schema and a Python executor
 that returns (result_string, written_files_list).
@@ -14,12 +14,16 @@ tracking.
 """
 
 import asyncio
+import html as html_mod
 import json
 import logging
 import os
 import pathlib
+import re
 import subprocess
 import time
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 
 log = logging.getLogger("nexus")
@@ -163,6 +167,27 @@ TOOL_SCHEMAS = [
                     },
                 },
                 "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search the web using DuckDuckGo. Returns titles, URLs, and snippets for the top results. Use this when you need current information, facts, or anything not available locally.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query",
+                    },
+                    "num_results": {
+                        "type": "integer",
+                        "description": "Number of results to return (default: 5, max: 10)",
+                    },
+                },
+                "required": ["query"],
             },
         },
     },
@@ -367,6 +392,85 @@ def _exec_grep(args: dict, *, cwd: str | None = None, **_kwargs) -> tuple[str, l
         return f"Error in grep: {e}", []
 
 
+def _exec_web_search(args: dict, **_kwargs) -> tuple[str, list[str]]:
+    """Search the web via DuckDuckGo HTML. Returns (results, [])."""
+    query = args.get("query", "")
+    if not query:
+        return "Error: no query provided", []
+
+    num_results = min(args.get("num_results") or 5, 10)
+
+    log.info("Tool web_search: %s (n=%d)", query[:80], num_results)
+
+    try:
+        # DuckDuckGo HTML lite — no API key, no rate limit issues
+        url = "https://html.duckduckgo.com/html/"
+        form_data = urllib.parse.urlencode({"q": query}).encode()
+        req = urllib.request.Request(
+            url,
+            data=form_data,
+            headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw_html = resp.read().decode("utf-8", errors="replace")
+    except Exception as e:
+        return f"Error: web search failed: {e}", []
+
+    # Parse results from DuckDuckGo HTML
+    results = _parse_ddg_html(raw_html, num_results)
+
+    if not results:
+        return f"No results found for: {query}", []
+
+    # Format results
+    output_lines = [f"Web search: {query}\n"]
+    for i, r in enumerate(results, 1):
+        output_lines.append(f"{i}. {r['title']}")
+        output_lines.append(f"   {r['url']}")
+        if r["snippet"]:
+            output_lines.append(f"   {r['snippet']}")
+        output_lines.append("")
+
+    return _truncate("\n".join(output_lines)), []
+
+
+def _parse_ddg_html(raw_html: str, max_results: int) -> list[dict]:
+    """Extract search results from DuckDuckGo HTML lite response."""
+    results = []
+
+    # DuckDuckGo HTML wraps each result in <a class="result__a" href="...">title</a>
+    # and snippets in <a class="result__snippet" ...>text</a>
+    result_blocks = re.findall(
+        r'<a[^>]+class="result__a"[^>]+href="([^"]*)"[^>]*>(.*?)</a>'
+        r'.*?'
+        r'(?:<a[^>]+class="result__snippet"[^>]*>(.*?)</a>)?',
+        raw_html,
+        re.DOTALL,
+    )
+
+    for href, title_html, snippet_html in result_blocks:
+        if len(results) >= max_results:
+            break
+
+        # Clean HTML tags and decode entities
+        title = html_mod.unescape(re.sub(r"<[^>]+>", "", title_html)).strip()
+        snippet = html_mod.unescape(re.sub(r"<[^>]+>", "", snippet_html)).strip() if snippet_html else ""
+
+        # DuckDuckGo wraps URLs in a redirect — extract the actual URL
+        if "uddg=" in href:
+            match = re.search(r"uddg=([^&]+)", href)
+            if match:
+                href = urllib.parse.unquote(match.group(1))
+
+        if title and href and not href.startswith("/"):
+            results.append({"title": title, "url": href, "snippet": snippet})
+
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Executor dispatch
 # ---------------------------------------------------------------------------
@@ -378,6 +482,7 @@ _EXECUTORS = {
     "edit_file": _exec_edit_file,
     "glob": _exec_glob,
     "grep": _exec_grep,
+    "web_search": _exec_web_search,
 }
 
 
@@ -436,6 +541,8 @@ def _format_tool_status(tool_name: str, tool_input: dict) -> str:
         return f"Searching files: {tool_input.get('pattern', '?')}"
     elif tool_name in ("Grep", "grep"):
         return f"Searching content: {tool_input.get('pattern', '?')}"
+    elif tool_name in ("WebSearch", "web_search"):
+        return f"Searching web: {tool_input.get('query', '?')}"
     return f"Tool: {tool_name}"
 
 

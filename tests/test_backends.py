@@ -346,7 +346,7 @@ class TestOllamaBackend:
             req = mock_urlopen.call_args[0][0]
             payload = json.loads(req.data.decode())
             assert "tools" in payload
-            assert len(payload["tools"]) == 6
+            assert len(payload["tools"]) == 7
 
     def test_call_sync_no_tools_when_disabled(self):
         """call_sync should not include tools when disabled."""
@@ -1064,7 +1064,7 @@ class TestToolInfra:
         from backends.anthropic_api import _convert_schemas_to_anthropic
         from backends.tools import TOOL_SCHEMAS
         result = _convert_schemas_to_anthropic(TOOL_SCHEMAS)
-        assert len(result) == 6
+        assert len(result) == 7
         assert result[0]["name"] == "bash"
         assert "input_schema" in result[0]
         assert "type" not in result[0]  # no "type": "function" wrapper
@@ -1074,7 +1074,7 @@ class TestToolInfra:
         from backends.gemini_api import _convert_schemas_to_gemini
         from backends.tools import TOOL_SCHEMAS
         result = _convert_schemas_to_gemini(TOOL_SCHEMAS)
-        assert len(result) == 6
+        assert len(result) == 7
         assert result[0]["name"] == "bash"
         assert "parameters" in result[0]
         assert "input_schema" not in result[0]
@@ -1120,7 +1120,7 @@ class TestOpenAICompatToolUse:
             req = mock_urlopen.call_args[0][0]
             payload = json.loads(req.data.decode())
             assert "tools" in payload
-            assert len(payload["tools"]) == 6
+            assert len(payload["tools"]) == 7
 
     def test_call_sync_no_tools_when_disabled(self):
         """call_sync should not include tools when disabled."""
@@ -1293,7 +1293,7 @@ class TestAnthropicAPIToolUse:
         backend = self._make_backend()
         tools = backend._get_tools()
         assert tools is not None
-        assert len(tools) == 6
+        assert len(tools) == 7
         assert tools[0]["name"] == "bash"
         assert "input_schema" in tools[0]
         assert "type" not in tools[0]  # not the OpenAI wrapper
@@ -1412,7 +1412,7 @@ class TestAnthropicAPIToolUse:
             backend.call_sync("test")
             call_kwargs = mock_client.messages.create.call_args[1]
             assert "tools" in call_kwargs
-            assert len(call_kwargs["tools"]) == 6
+            assert len(call_kwargs["tools"]) == 7
             assert call_kwargs["max_tokens"] == 16384  # higher for tool use
 
     def test_call_sync_no_tools_when_disabled(self):
@@ -1457,7 +1457,7 @@ class TestGeminiAPIToolUse:
         assert tools is not None
         assert len(tools) == 1
         decls = tools[0]["functionDeclarations"]
-        assert len(decls) == 6
+        assert len(decls) == 7
         assert decls[0]["name"] == "bash"
         assert "parameters" in decls[0]
 
@@ -1552,7 +1552,7 @@ class TestGeminiAPIToolUse:
             payload = json.loads(req.data.decode())
             assert "tools" in payload
             assert "functionDeclarations" in payload["tools"][0]
-            assert len(payload["tools"][0]["functionDeclarations"]) == 6
+            assert len(payload["tools"][0]["functionDeclarations"]) == 7
 
     def test_call_sync_no_tools_when_disabled(self):
         """call_sync should not include tools when disabled."""
