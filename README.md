@@ -29,6 +29,16 @@ PureClaw is a multi-engine agentic framework. Swap between any backend with a si
 - **Tier 2 -- API:** Anthropic, Gemini, and any OpenAI-compatible provider. Pay-per-token, no subscription, 6 built-in tools (same as Tier 1). Pure HTTP -- stdlib `urllib` for sync, `aiohttp` for async streaming.
 - **Tier 3 -- CLI:** Claude Code, Gemini CLI, Codex CLI. Subscription-based, full agentic tool use delegated to the CLI binary.
 
+### Recommended Backends
+
+For the best agentic experience:
+
+- **Claude Code (Sonnet/Opus)** -- Most reliable tool use, web search, file operations, and session continuity. The reference backend that PureClaw is developed against.
+- **Ollama (local)** -- Best for privacy and cost. Runs entirely on your hardware with 6 built-in tools. Models like Qwen 3, Llama 4, and DeepSeek R2 all work well.
+- **Anthropic API / Gemini API / OpenAI-compatible** -- Good middle ground. 6 built-in tools, pay-per-token, no subscription.
+
+**Note on Gemini CLI and Codex CLI:** These are third-party CLI tools with their own tool execution sandboxes. Their agentic capabilities (web search, code execution) are less mature than Claude Code and may produce errors during tool use. They work for basic conversation but are not recommended for tasks requiring reliable tool execution.
+
 ### Switching Engines
 
 One env var:
