@@ -185,6 +185,7 @@ async def _read_gemini_stream(proc, on_progress=None, streaming_editor=None) -> 
     tool-use status, and the final result.
     """
     result = None
+    session_id = None
     written_files = []
     streamed_text = ""
 
@@ -213,8 +214,21 @@ async def _read_gemini_stream(proc, on_progress=None, streaming_editor=None) -> 
 
         event_type = event.get("type", "")
 
-        # Text content events
-        if event_type in ("text", "content", "message"):
+        # Init event — captures session_id
+        if event_type == "init":
+            session_id = event.get("session_id")
+
+        # Assistant message content (skip user messages)
+        elif event_type == "message" and event.get("role") == "assistant":
+            text = event.get("content", "")
+            if text and streaming_editor:
+                streamed_text += text
+                await streaming_editor.add_text(text)
+            elif text:
+                streamed_text += text
+
+        # Text content events (other formats)
+        elif event_type in ("text", "content"):
             text = event.get("text", event.get("content", ""))
             if text and streaming_editor:
                 streamed_text += text
@@ -234,8 +248,8 @@ async def _read_gemini_stream(proc, on_progress=None, streaming_editor=None) -> 
         # Result / completion events
         elif event_type == "result":
             result = {
-                "result": event.get("response", event.get("result", "")),
-                "session_id": event.get("session_id"),
+                "result": streamed_text or event.get("response", event.get("result", "")),
+                "session_id": session_id or event.get("session_id"),
                 "written_files": written_files,
             }
 
@@ -244,9 +258,19 @@ async def _read_gemini_stream(proc, on_progress=None, streaming_editor=None) -> 
         if streamed_text.strip():
             return {
                 "result": streamed_text,
-                "session_id": None,
+                "session_id": session_id,
                 "written_files": written_files,
             }
-        raise RuntimeError("No result event in Gemini CLI stream output")
+        # Read stderr for a more useful error message
+        stderr_text = ""
+        if proc.stderr:
+            try:
+                stderr_bytes = await proc.stderr.read()
+                stderr_text = stderr_bytes.decode().strip()
+            except Exception:
+                pass
+        if stderr_text:
+            log.error("Gemini CLI produced no output. stderr: %s", stderr_text[:1000])
+        raise RuntimeError(f"No result event in Gemini CLI stream output{': ' + stderr_text[:300] if stderr_text else ''}")
 
     return result
