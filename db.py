@@ -227,6 +227,25 @@ def upsert_session(chat_id: int, session_id: str, model: str, message_count: int
     con.close()
 
 
+def reset_session_id(chat_id: int):
+    """Clear the session_id for the active session (e.g. after switching backends)."""
+    con = _connect()
+    row = con.execute(
+        """SELECT id FROM sessions
+           WHERE chat_id = ? AND archived_at IS NULL
+           ORDER BY last_used DESC NULLS LAST, id DESC
+           LIMIT 1""",
+        (chat_id,),
+    ).fetchone()
+    if row:
+        con.execute(
+            "UPDATE sessions SET session_id = NULL, message_count = 0 WHERE id = ?",
+            (row[0],),
+        )
+        con.commit()
+    con.close()
+
+
 def update_model(chat_id: int, model: str):
     """Update the model for the active session. Creates 'default' if none exists."""
     now = _now()
