@@ -393,17 +393,60 @@ def _exec_grep(args: dict, *, cwd: str | None = None, **_kwargs) -> tuple[str, l
 
 
 def _exec_web_search(args: dict, **_kwargs) -> tuple[str, list[str]]:
-    """Search the web via DuckDuckGo HTML. Returns (results, [])."""
+    """Search the web. Uses SearXNG if configured, DuckDuckGo otherwise."""
     query = args.get("query", "")
     if not query:
         return "Error: no query provided", []
 
     num_results = min(args.get("num_results") or 5, 10)
 
-    log.info("Tool web_search: %s (n=%d)", query[:80], num_results)
+    # Prefer SearXNG (self-hosted, private, better results)
+    searxng_url = os.environ.get("SEARXNG_URL", "")
+    if searxng_url:
+        return _search_searxng(query, num_results, searxng_url)
+    return _search_ddg(query, num_results)
+
+
+def _search_searxng(query: str, num_results: int, base_url: str) -> tuple[str, list[str]]:
+    """Search via SearXNG JSON API."""
+    log.info("Tool web_search (SearXNG): %s (n=%d)", query[:80], num_results)
 
     try:
-        # DuckDuckGo HTML lite — no API key, no rate limit issues
+        params = urllib.parse.urlencode({"q": query, "format": "json"})
+        url = f"{base_url}?{params}" if "?" not in base_url else f"{base_url}&{params}"
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception as e:
+        log.warning("SearXNG failed, falling back to DuckDuckGo: %s", e)
+        return _search_ddg(query, num_results)
+
+    results = data.get("results", [])[:num_results]
+    if not results:
+        return f"No results found for: {query}", []
+
+    output_lines = [f"Web search: {query}\n"]
+    for i, r in enumerate(results, 1):
+        title = r.get("title", "Untitled")
+        snippet = r.get("content", "")
+        url = r.get("url", "")
+        engines = ", ".join(r.get("engines", []))
+        output_lines.append(f"{i}. {title}")
+        output_lines.append(f"   {url}")
+        if snippet:
+            output_lines.append(f"   {snippet}")
+        if engines:
+            output_lines.append(f"   [via {engines}]")
+        output_lines.append("")
+
+    return _truncate("\n".join(output_lines)), []
+
+
+def _search_ddg(query: str, num_results: int) -> tuple[str, list[str]]:
+    """Search via DuckDuckGo HTML (zero config fallback)."""
+    log.info("Tool web_search (DuckDuckGo): %s (n=%d)", query[:80], num_results)
+
+    try:
         url = "https://html.duckduckgo.com/html/"
         form_data = urllib.parse.urlencode({"q": query}).encode()
         req = urllib.request.Request(
@@ -419,13 +462,10 @@ def _exec_web_search(args: dict, **_kwargs) -> tuple[str, list[str]]:
     except Exception as e:
         return f"Error: web search failed: {e}", []
 
-    # Parse results from DuckDuckGo HTML
     results = _parse_ddg_html(raw_html, num_results)
-
     if not results:
         return f"No results found for: {query}", []
 
-    # Format results
     output_lines = [f"Web search: {query}\n"]
     for i, r in enumerate(results, 1):
         output_lines.append(f"{i}. {r['title']}")
@@ -441,8 +481,6 @@ def _parse_ddg_html(raw_html: str, max_results: int) -> list[dict]:
     """Extract search results from DuckDuckGo HTML lite response."""
     results = []
 
-    # DuckDuckGo HTML wraps each result in <a class="result__a" href="...">title</a>
-    # and snippets in <a class="result__snippet" ...>text</a>
     result_blocks = re.findall(
         r'<a[^>]+class="result__a"[^>]+href="([^"]*)"[^>]*>(.*?)</a>'
         r'.*?'
@@ -455,11 +493,9 @@ def _parse_ddg_html(raw_html: str, max_results: int) -> list[dict]:
         if len(results) >= max_results:
             break
 
-        # Clean HTML tags and decode entities
         title = html_mod.unescape(re.sub(r"<[^>]+>", "", title_html)).strip()
         snippet = html_mod.unescape(re.sub(r"<[^>]+>", "", snippet_html)).strip() if snippet_html else ""
 
-        # DuckDuckGo wraps URLs in a redirect — extract the actual URL
         if "uddg=" in href:
             match = re.search(r"uddg=([^&]+)", href)
             if match:
