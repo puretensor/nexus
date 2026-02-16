@@ -10,7 +10,7 @@ _backend_instance = None
 def get_backend():
     """Return the configured backend (lazy singleton).
 
-    Backend is selected by config.ENGINE_BACKEND (default: 'claude_code').
+    Backend is selected by config.ENGINE_BACKEND (default: 'ollama').
     Instance is cached after first creation.
     """
     global _backend_instance
@@ -20,13 +20,10 @@ def get_backend():
     from config import ENGINE_BACKEND
 
     _REGISTRY = {
-        "claude_code": ("backends.claude_code", "ClaudeCodeBackend"),
-        "anthropic_api": ("backends.anthropic_api", "AnthropicAPIBackend"),
-        "gemini_api": ("backends.gemini_api", "GeminiAPIBackend"),
         "ollama": ("backends.ollama", "OllamaBackend"),
-        "openai_compat": ("backends.openai_compat", "OpenAICompatBackend"),
-        "gemini_cli": ("backends.gemini_cli", "GeminiCLIBackend"),
+        "claude_code": ("backends.claude_code", "ClaudeCodeBackend"),
         "codex_cli": ("backends.codex_cli", "CodexCLIBackend"),
+        "gemini_cli": ("backends.gemini_cli", "GeminiCLIBackend"),
     }
 
     if ENGINE_BACKEND not in _REGISTRY:

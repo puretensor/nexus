@@ -1,7 +1,7 @@
 """OpenAI Codex CLI backend — shells out to the Codex CLI binary.
 
 Requires: npm install -g @openai/codex (or equivalent)
-CLI flags verified against `codex exec --help` (v0.98.0).
+CLI flags verified against `codex exec --help` (v0.101.0).
 """
 
 import asyncio
@@ -22,8 +22,7 @@ class CodexCLIBackend:
         self._cwd = CODEX_CWD
 
     def get_model_display(self, model: str) -> str:
-        label = self._model if self._model else "default"
-        return f"Codex CLI ({label})"
+        return "Codex"
 
     @staticmethod
     def _build_prompt(
@@ -182,7 +181,11 @@ class CodexCLIBackend:
 
 
 def _parse_codex_jsonl(stdout: str) -> dict:
-    """Parse JSONL output from `codex exec --json` and extract the final result."""
+    """Parse JSONL output from `codex exec --json` and extract the final result.
+
+    Supports both legacy format (message/output_text) and v0.101+ format
+    (item.completed with item.type == "agent_message").
+    """
     last_text = ""
     for line in stdout.strip().splitlines():
         line = line.strip()
@@ -192,9 +195,18 @@ def _parse_codex_jsonl(stdout: str) -> dict:
             event = json.loads(line)
         except json.JSONDecodeError:
             continue
-        # Codex emits events with "type" field; collect message text
         event_type = event.get("type", "")
-        if event_type == "message" and event.get("role") == "assistant":
+
+        # v0.101+ format
+        if event_type == "item.completed":
+            item = event.get("item", {})
+            if item.get("type") == "agent_message":
+                text = item.get("text", "")
+                if text:
+                    last_text = text
+
+        # Legacy format
+        elif event_type == "message" and event.get("role") == "assistant":
             content = event.get("content", "")
             if isinstance(content, str) and content:
                 last_text = content
@@ -217,6 +229,8 @@ async def _read_codex_stream(proc, on_progress=None, streaming_editor=None) -> d
     """Read JSONL output from Codex CLI line by line.
 
     Parses events for text deltas and tool-use status.
+    Supports both legacy format (message/output_text) and v0.101+ format
+    (item.started/item.completed with item.type).
     """
     written_files = []
     streamed_text = ""
@@ -246,8 +260,37 @@ async def _read_codex_stream(proc, on_progress=None, streaming_editor=None) -> d
 
         event_type = event.get("type", "")
 
-        # Text content from assistant messages
-        if event_type == "message" and event.get("role") == "assistant":
+        # --- v0.101+ format: item.completed / item.started ---
+        if event_type == "item.completed":
+            item = event.get("item", {})
+            item_type = item.get("type", "")
+            if item_type == "agent_message":
+                text = item.get("text", "")
+                if text:
+                    streamed_text += text
+                    if streaming_editor:
+                        await streaming_editor.add_text(text)
+            elif item_type == "command_execution":
+                cmd_str = item.get("command", "")
+                status = f"Ran: {cmd_str}" if cmd_str else "Command completed"
+                if streaming_editor:
+                    await streaming_editor.add_tool_status(status)
+                elif on_progress:
+                    await on_progress(status)
+
+        elif event_type == "item.started":
+            item = event.get("item", {})
+            item_type = item.get("type", "")
+            if item_type == "command_execution":
+                cmd_str = item.get("command", "")
+                status = f"Running: {cmd_str}" if cmd_str else "Running command..."
+                if streaming_editor:
+                    await streaming_editor.add_tool_status(status)
+                elif on_progress:
+                    await on_progress(status)
+
+        # --- Legacy format (pre-v0.101) ---
+        elif event_type == "message" and event.get("role") == "assistant":
             content = event.get("content", "")
             text = ""
             if isinstance(content, str):
@@ -268,7 +311,6 @@ async def _read_codex_stream(proc, on_progress=None, streaming_editor=None) -> d
                 if streaming_editor:
                     await streaming_editor.add_text(text)
 
-        # Tool-use / function-call events
         elif event_type in ("function_call", "tool_call", "function_call_output"):
             tool_name = event.get("name", event.get("function", ""))
             status = f"Using tool: {tool_name}" if tool_name else "Running tool..."

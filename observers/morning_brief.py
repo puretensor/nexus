@@ -35,7 +35,7 @@ class MorningBriefObserver(Observer):
     """Gathers emails, infra health, and weather into a Claude-written morning brief."""
 
     name = "morning_brief"
-    schedule = "30 7 * * 1-5"  # 7:30 AM UTC, weekdays
+    schedule = "30 7 * * 0-4"  # 7:30 AM UTC, weekdays (0=Mon)
 
     # Class attributes with env-var fallbacks
     ACCOUNTS_FILE = SCRIPT_DIR / "email_accounts.json"

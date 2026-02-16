@@ -30,8 +30,8 @@ class ClaudeCodeBackend:
         return True
 
     def get_model_display(self, model: str) -> str:
-        _LABELS = {"opus": "Opus 4.6", "sonnet": "Sonnet 4.5", "haiku": "Haiku 4.5"}
-        return _LABELS.get(model, model)
+        _LABELS = {"opus": "Claude Opus", "sonnet": "Claude Sonnet", "haiku": "Claude Haiku"}
+        return _LABELS.get(model, f"Claude ({model})")
 
     def call_sync(
         self,

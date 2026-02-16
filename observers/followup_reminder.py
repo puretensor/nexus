@@ -20,7 +20,7 @@ class FollowupReminderObserver(Observer):
     """Checks for stale followups and sends Telegram reminders."""
 
     name = "followup_reminder"
-    schedule = "0 9 * * 1-5"  # 9:00 AM UTC, weekdays
+    schedule = "0 9 * * 0-4"  # 9:00 AM UTC, weekdays (0=Mon)
 
     def run(self, ctx=None) -> ObserverResult:
         """Check all active followups and remind about overdue ones."""

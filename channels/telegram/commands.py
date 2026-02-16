@@ -187,42 +187,28 @@ async def cmd_backend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton(
-                label("Sonnet 4.5", current == "claude_code" and current_model == "sonnet"),
+                label("Ollama (local)", current == "ollama"),
+                callback_data="backend:ollama:sonnet",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                label("Claude Sonnet", current == "claude_code" and current_model == "sonnet"),
                 callback_data="backend:claude_code:sonnet",
             ),
             InlineKeyboardButton(
-                label("Opus 4.6", current == "claude_code" and current_model == "opus"),
+                label("Claude Opus", current == "claude_code" and current_model == "opus"),
                 callback_data="backend:claude_code:opus",
             ),
         ],
         [
             InlineKeyboardButton(
-                label("Gemini CLI", current == "gemini_cli"),
-                callback_data="backend:gemini_cli:sonnet",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                label("Codex CLI", current == "codex_cli"),
+                label("Codex", current == "codex_cli"),
                 callback_data="backend:codex_cli:sonnet",
             ),
-        ],
-        [
             InlineKeyboardButton(
-                label("Anthropic API", current == "anthropic_api"),
-                callback_data="backend:anthropic_api:sonnet",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                label("Gemini API", current == "gemini_api"),
-                callback_data="backend:gemini_api:sonnet",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                label("Qwen3-235B (local)", current == "ollama"),
-                callback_data="backend:ollama:sonnet",
+                label("Gemini", current == "gemini_cli"),
+                callback_data="backend:gemini_cli:sonnet",
             ),
         ],
     ])
@@ -283,10 +269,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/session delete <name> — Delete a session\n"
         "/history — List archived sessions\n"
         "/resume <n> — Restore archived session by number\n"
-        "/opus — Switch to Opus 4\\.6\n"
-        "/sonnet — Switch to Sonnet 4\\.5\n"
-        "/ollama — Switch to Qwen 3 235B \\(local\\)\n"
-        "/backend — Choose backend \\(tap to select\\)\n"
+        "/opus — Switch to Claude Opus\n"
+        "/sonnet — Switch to Claude Sonnet\n"
+        "/ollama — Switch to local model\n"
+        "/backend — Choose engine \\(Ollama, Claude, Codex, Gemini\\)\n"
         "/voice \\[on|off] — Toggle voice responses\n"
         "/status — Show current session info\n\n"
         "*Scheduled Tasks & Reminders*\n"
@@ -1083,9 +1069,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Acknowledgment message
             model_label = get_model_display(model)
             if session_id or msg_count > 0:
-                ack = f"Processing... ({model_label}, msg #{msg_count + 1})"
+                ack = f"{model_label} processing... (msg #{msg_count + 1})"
             else:
-                ack = f"Starting new session... ({model_label})"
+                ack = f"{model_label} processing... (new session)"
             await update.message.reply_text(ack)
 
             # Build extra system prompt for voice mode
@@ -1217,7 +1203,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             prompt = reply_ctx + transcript
 
             model_label = get_model_display(model)
-            await update.message.reply_text(f"Processing with {model_label}...")
+            await update.message.reply_text(f"{model_label} processing...")
 
             # Build extra system prompt for voice mode
             extra_sp = get_voice_system_prompt_addition() if is_voice_mode(chat_id) else None

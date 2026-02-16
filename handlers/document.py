@@ -197,11 +197,12 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             prompt = reply_ctx + prompt_text
 
             # Acknowledgment
-            model_label = "Opus 4.6" if model == "opus" else "Sonnet"
+            from engine import get_model_display
+            model_label = get_model_display(model)
             if session_id:
-                ack = f"Processing {filename}... ({model_label}, msg #{msg_count + 1})"
+                ack = f"{model_label} processing {filename}... (msg #{msg_count + 1})"
             else:
-                ack = f"Processing {filename}... ({model_label}, new session)"
+                ack = f"{model_label} processing {filename}... (new session)"
             await update.message.reply_text(ack)
 
             # Stream Claude output

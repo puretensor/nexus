@@ -80,11 +80,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg_count = session["message_count"] if session else 0
 
             # Acknowledgment
-            model_label = "Opus 4.6" if model == "opus" else "Sonnet"
+            from engine import get_model_display
+            model_label = get_model_display(model)
             if session_id:
-                ack = f"Processing image... ({model_label}, msg #{msg_count + 1})"
+                ack = f"{model_label} processing image... (msg #{msg_count + 1})"
             else:
-                ack = f"Starting new session with image... ({model_label})"
+                ack = f"{model_label} processing image... (new session)"
             await update.message.reply_text(ack)
 
             # Stream Claude output

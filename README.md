@@ -1,73 +1,352 @@
 # PureClaw
 
-**Pure, Simple, and Secure.**
-Your AI agent, your hardware, your rules.
+**Your AI agent. Your hardware. Your rules.**
+
+PureClaw is a personal AI agent that lives in your Telegram app. It connects to whichever AI engine you choose — a local model running on your own GPU, or a cloud CLI like Claude, Codex, or Gemini. One bot, four engines, no lock-in.
 
 [pureclaw.ai](https://pureclaw.ai) | [GitHub](https://github.com/puretensor/PureClaw)
 
 ---
 
+## What It Does
+
+You message your Telegram bot. PureClaw routes your message to whichever AI engine is active, streams the response back in real time, and gives the engine access to tools — it can run shell commands, read and write files, search the web, and more. It's like having Claude Code, Codex, or Gemini CLI in your pocket.
+
+Beyond conversation, PureClaw runs background tasks (email monitoring, news briefs, infrastructure health checks), handles email drafts with approve/reject buttons, schedules reminders, and serves instant data cards for weather, markets, and trains — all from Telegram.
+
+---
+
 ## Choose Your Engine
 
-PureClaw is a multi-engine agentic framework. Swap between any backend with a single environment variable or a `/backend` tap in Telegram. No lock-in, no bloat, no telemetry.
+Four engines. Swap anytime with `/backend` in Telegram or one line in `.env`.
 
-### Engine Table
+| Engine | What It Is | Tools | Cost |
+|--------|-----------|-------|------|
+| **Ollama** (default) | Any open model running locally via [Ollama](https://ollama.com) | 7 built-in tools | Free |
+| **Claude Code** | Anthropic's [Claude Code](https://claude.ai/claude-code) CLI agent | Full agentic | Subscription |
+| **Codex** | OpenAI's [Codex](https://openai.com/index/codex/) CLI agent | Full agentic | Subscription |
+| **Gemini** | Google's [Gemini CLI](https://github.com/google-gemini/gemini-cli) agent | Full agentic | Subscription |
 
-| Backend | Type | Provider | Tool Use | Streaming | Cost |
-|---------|------|----------|----------|-----------|------|
-| `ollama` | Local | Any GGUF model | 7 tools (incl. web search) | Yes | Free |
-| `anthropic_api` | API | Anthropic | 7 tools (incl. web search) | Yes | Per-token |
-| `gemini_api` | API | Google Gemini | 7 tools (incl. web search) | Yes | Per-token |
-| `openai_compat` | API | ChatGPT, DeepSeek, Kimi 2.5, GLM 5, Grok, Mistral, vLLM | 7 tools (incl. web search) | Yes | Per-token |
-| `claude_code` | CLI | Claude Code | Full agentic | Yes | Subscription |
-| `gemini_cli` | CLI | Gemini CLI | Full agentic | Yes | Subscription |
-| `codex_cli` | CLI | Codex CLI | Full agentic | Yes | Subscription |
+**Which should I pick?**
 
-**Three tiers:**
+- **Just want to try it?** Start with **Ollama**. It's free, runs on your machine, and works out of the box with any GGUF model. Even a 7B parameter model on a laptop will work for basic conversation.
+- **Want the best experience?** **Claude Code** is the most reliable for tool use, file operations, and multi-turn sessions. PureClaw is developed and tested against it.
+- **Already pay for ChatGPT?** **Codex** gives you OpenAI's coding agent through the same Telegram interface.
+- **Prefer Google?** **Gemini** connects to Google's CLI agent.
 
-- **Tier 1 -- Local-First:** Ollama runs on your hardware. Free, private, with 7 tools included (bash, read, write, edit, glob, grep, web search). Your data never leaves your machine.
-- **Tier 2 -- API:** Anthropic, Gemini, and any OpenAI-compatible provider. Pay-per-token, no subscription, 7 built-in tools (same as Tier 1). Pure HTTP -- stdlib `urllib` for sync, `aiohttp` for async streaming.
-- **Tier 3 -- CLI:** Claude Code, Gemini CLI, Codex CLI. Subscription-based, full agentic tool use delegated to the CLI binary.
+The CLI engines (Claude, Codex, Gemini) delegate all tool execution to their own binaries — they bring their own sandboxes, web search, and code execution. Ollama uses PureClaw's 7 built-in tools instead.
 
-### Recommended Backends
+---
 
-For the best agentic experience:
+## Quick Start
 
-- **Claude Code (Sonnet/Opus)** -- Most reliable tool use, web search, file operations, and session continuity. The reference backend that PureClaw is developed against.
-- **Ollama (local)** -- Best for privacy and cost. Runs entirely on your hardware with 7 built-in tools. Models like Qwen 3, Llama 4, and DeepSeek R2 all work well.
-- **Anthropic API / Gemini API / OpenAI-compatible** -- Good middle ground. 7 built-in tools, pay-per-token, no subscription.
+### 1. Create your Telegram bot
 
-**Note on Gemini CLI and Codex CLI:** These are third-party CLI tools with their own tool execution sandboxes. Their agentic capabilities (web search, code execution) are less mature than Claude Code and may produce errors during tool use. They work for basic conversation but are not recommended for tasks requiring reliable tool execution.
+Open Telegram, search for [@BotFather](https://t.me/BotFather), and send `/newbot`. Follow the prompts. You'll get a token like `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`. Save it.
 
-### Switching Engines
+### 2. Find your Telegram user ID
 
-One env var:
+Send a message to [@userinfobot](https://t.me/userinfobot) in Telegram. It will reply with your numeric user ID (e.g. `22276981`). This locks the bot to you — nobody else can use it.
+
+### 3. Clone and install
 
 ```bash
-ENGINE_BACKEND=gemini_api
+git clone https://github.com/puretensor/PureClaw.git
+cd PureClaw
+pip install -r requirements.txt
 ```
 
-Or tap `/backend` in Telegram to get an inline keyboard:
+### 4. Configure
 
+```bash
+cp .env.example .env
 ```
-[Sonnet 4.5]  [Opus 4.6]       <- claude_code
-[Gemini CLI]                     <- gemini_cli
-[Codex CLI]                      <- codex_cli
-[Anthropic API]                  <- anthropic_api
-[Gemini API]                     <- gemini_api
-[Qwen 3 235B (local)]           <- ollama
+
+Open `.env` in a text editor and set these two required values:
+
+```bash
+TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+AUTHORIZED_USER_ID=22276981
+```
+
+### 5. Set up your engine
+
+Pick one (you can always add more later):
+
+<details>
+<summary><strong>Ollama (default, free, local)</strong></summary>
+
+Install Ollama:
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+Pull a model (pick one):
+```bash
+ollama pull llama3.2        # 3B, runs on any machine
+ollama pull qwen3:8b        # 8B, good balance
+ollama pull qwen3:32b       # 32B, needs ~20GB RAM
+ollama pull qwen3:235b      # 235B MoE, needs serious GPU
+```
+
+Set it in `.env`:
+```bash
+ENGINE_BACKEND=ollama
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3:8b
+```
+
+**That's it.** Ollama is the default — if you don't set `ENGINE_BACKEND` at all, PureClaw uses Ollama.
+
+</details>
+
+<details>
+<summary><strong>Claude Code (Anthropic, subscription)</strong></summary>
+
+Install the Claude Code CLI:
+```bash
+npm install -g @anthropic-ai/claude-code
+# or use the standalone installer:
+curl -fsSL https://claude.ai/install.sh | sh
+```
+
+Authenticate (opens a browser):
+```bash
+claude login
+```
+
+Verify it works:
+```bash
+claude -p "Say hello"
+```
+
+Set it in `.env`:
+```bash
+ENGINE_BACKEND=claude_code
+```
+
+Claude Code uses your Anthropic subscription (Max plan). No API key needed — authentication is handled by the CLI.
+
+</details>
+
+<details>
+<summary><strong>Codex (OpenAI, subscription or API credit)</strong></summary>
+
+Install the Codex CLI:
+```bash
+npm install -g @openai/codex
+```
+
+Set your OpenAI API key as an environment variable:
+```bash
+export OPENAI_API_KEY=sk-proj-your-key-here
+```
+
+Verify it works:
+```bash
+codex exec "Say hello" --json --dangerously-bypass-approvals-and-sandbox
+```
+
+Set it in `.env`:
+```bash
+ENGINE_BACKEND=codex_cli
+CODEX_MODEL=gpt-5.2-codex
+OPENAI_API_KEY=sk-proj-your-key-here
+```
+
+</details>
+
+<details>
+<summary><strong>Gemini (Google, subscription)</strong></summary>
+
+Install the Gemini CLI:
+```bash
+npm install -g @google/gemini-cli
+```
+
+Authenticate (opens a browser):
+```bash
+gemini auth
+```
+
+Verify it works:
+```bash
+gemini -p "Say hello" --output-format json --yolo
+```
+
+Set it in `.env`:
+```bash
+ENGINE_BACKEND=gemini_cli
+```
+
+</details>
+
+### 6. Start
+
+```bash
+python3 nexus.py
+```
+
+Open your bot in Telegram and send a message. You should see a streaming response.
+
+To run as a background service:
+```bash
+sudo cp nexus.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now nexus.service
 ```
 
 ---
 
-## Security
+## Telegram Commands
 
-- **Single-user auth** -- one authorized Telegram user ID, no shared access
-- **No cloud dependency** -- Ollama keeps data local; API backends use direct HTTP calls
-- **No telemetry** -- phones home to nobody, no analytics, no tracking
-- **Human-in-the-loop email** -- agent drafts replies, you approve or reject via Telegram
-- **Minimal dependencies** -- stdlib HTTP for API calls, no bloated SDK chains
-- **Your hardware, not a managed platform** -- run on your own server, your own GPU
+### Conversation
+
+| Command | What it does |
+|---------|-------------|
+| `/new [name]` | Archive current session, start fresh |
+| `/session [name]` | List sessions, switch to one, or create new |
+| `/session delete <name>` | Delete a named session |
+| `/history` | List archived sessions |
+| `/resume <n>` | Restore an archived session by number |
+| `/status` | Show current engine, model, session info |
+
+### Engine Switching
+
+| Command | What it does |
+|---------|-------------|
+| `/backend` | Tap to select: Ollama, Claude Sonnet, Claude Opus, Codex, Gemini |
+| `/sonnet` | Quick-switch to Claude Sonnet |
+| `/opus` | Quick-switch to Claude Opus |
+| `/ollama` | Quick-switch to local model |
+
+### Memory
+
+PureClaw remembers things across sessions. Memories persist to disk.
+
+| Command | What it does |
+|---------|-------------|
+| `/remember <fact>` | Store a persistent memory (e.g. `/remember prefer dark mode`) |
+| `/remember --infrastructure <fact>` | Store with a category (preferences, infrastructure, people, projects) |
+| `/forget <key or number>` | Remove a memory |
+| `/memories` | List all memories |
+| `/memories infrastructure` | Filter by category |
+
+### Scheduling
+
+| Command | What it does |
+|---------|-------------|
+| `/schedule 5pm generate a status report` | Run a full AI prompt at 5pm |
+| `/schedule daily 8am check my emails` | Recurring daily prompt |
+| `/remind tomorrow 9am call the dentist` | Simple notification (no AI, just a ping) |
+| `/cancel <n>` | Cancel a scheduled task by number |
+
+Time formats: `5pm`, `9:30am`, `17:00`, `tomorrow 9am`, `monday`, `9 feb`, `in 30 minutes`, `daily 8am`, `weekly monday 9am`.
+
+### Data Cards
+
+Instant structured responses that bypass the AI engine for speed. No tokens used.
+
+| Command | What it does |
+|---------|-------------|
+| `/weather [location]` | Weather with 3-day forecast (defaults to your configured location) |
+| `/markets` | Stock indices, crypto, commodities, and FX — all in one card |
+| `/trains [from] [to]` | UK train departures |
+| `/nodes` | Infrastructure node status (requires Prometheus) |
+
+### Voice
+
+| Command | What it does |
+|---------|-------------|
+| `/voice on` | Enable voice responses (AI replies include audio) |
+| `/voice off` | Disable voice responses |
+| Send a voice note | Transcribed via Whisper, then processed by your AI engine |
+
+### Email & Follow-ups
+
+| Command | What it does |
+|---------|-------------|
+| `/drafts` | View pending email drafts with Approve / Reject buttons |
+| `/followups` | List emails waiting for a reply |
+| `/followups resolve <n>` | Mark a follow-up as resolved |
+
+### Infrastructure
+
+| Command | What it does |
+|---------|-------------|
+| `/check nodes` | Quick health check |
+| `/restart <service> [node]` | Restart a service (with confirmation) |
+| `/logs <service> [node] [n]` | Tail service logs |
+| `/disk [node]` | Disk usage |
+| `/top [node]` | System overview |
+| `/deploy <site>` | Trigger deploy webhook (with confirmation) |
+| `/calendar [today\|week]` | Google Calendar events |
+
+---
+
+## Features
+
+### Streaming Responses
+
+Responses stream in real time — you see the text appear word by word in Telegram, just like ChatGPT's interface. Tool usage (file reads, shell commands, web searches) shows live status updates.
+
+### Tool Use
+
+When using **Ollama**, PureClaw provides 7 built-in tools that the model can call:
+
+| Tool | What it does |
+|------|-------------|
+| `bash` | Execute shell commands |
+| `read_file` | Read file contents |
+| `write_file` | Create or overwrite files |
+| `edit_file` | Find-and-replace within files |
+| `glob` | Find files by pattern |
+| `grep` | Search file contents with regex |
+| `web_search` | Search the web (SearXNG or DuckDuckGo) |
+
+The CLI engines (Claude Code, Codex, Gemini) bring their own tools — they handle file operations, code execution, and web search through their own sandboxed environments.
+
+### Email Draft Queue
+
+PureClaw can monitor your email and draft replies. The workflow is human-in-the-loop:
+
+```
+Incoming email
+  -> AI classifies and drafts a reply
+  -> You get a Telegram notification with [Approve] [Reject] buttons
+  -> Approve: sends the reply and creates a follow-up tracker
+  -> Reject: discards the draft
+```
+
+You always have the final say. Nothing sends without your tap.
+
+### Observers
+
+Background tasks that run on schedules inside the PureClaw process. No external cron needed.
+
+| Observer | Schedule | What it does |
+|----------|----------|-------------|
+| Email Digest | Every 30 min | Summarizes unread emails |
+| Morning Brief | 7:30 AM weekdays | Combined email + weather + calendar briefing |
+| Node Health | Every 5 min | Checks infrastructure via Prometheus |
+| Daily Snippet | 8:00 AM weekdays | Geopolitical news brief from RSS feeds |
+| Content Review | Every 2 hours | Reviews scheduled blog posts |
+| Follow-up Reminder | 9:00 AM weekdays | Nags about unanswered outbound emails |
+| Git Push | Always on | Webhook listener for git push event summaries |
+| Email Responder | Every 5 min | Monitors inbox, generates draft replies for approval |
+
+Observers are optional — they run if configured but won't break anything if their dependencies aren't set up.
+
+### Agent Identity
+
+Give your agent a name and personality:
+
+```bash
+AGENT_NAME=HAL
+AGENT_PERSONALITY=You speak like HAL 9000. Calm, measured, precise.
+```
+
+The name and personality are injected into the system prompt for all engines.
 
 ---
 
@@ -77,169 +356,119 @@ Or tap `/backend` in Telegram to get an inline keyboard:
 nexus.py (entry point)
   |
   +-- Engine (backends/)
-  |     +-- claude_code      Claude Code CLI (Tier 3)
-  |     +-- anthropic_api    Anthropic Messages API (Tier 2)
-  |     +-- gemini_api       Google Gemini REST API (Tier 2)
-  |     +-- openai_compat    ChatGPT / DeepSeek / Grok / Mistral / vLLM (Tier 2)
-  |     +-- ollama           Local models with tool use (Tier 1)
-  |     +-- gemini_cli       Gemini CLI (Tier 3)
-  |     +-- codex_cli        Codex CLI (Tier 3)
+  |     +-- ollama             Local models with 7 built-in tools (default)
+  |     +-- claude_code        Claude Code CLI
+  |     +-- codex_cli          Codex CLI
+  |     +-- gemini_cli         Gemini CLI
+  |     +-- tools.py           Shared tool schemas + execution loop
   |
   +-- Channels
-  |     +-- Telegram         Streaming responses, inline keyboards, voice input
-  |     +-- Email Input      IMAP polling -> classify -> draft -> approve/reject
+  |     +-- Telegram           Streaming, keyboards, voice, photos, documents
+  |     +-- Email Input        IMAP polling, classification, draft generation
   |
-  +-- Observers              Internal cron scheduler, 7 autonomous tasks
-  |     +-- EmailDigest      Summarise unread emails (every 30 min)
-  |     +-- MorningBrief     Email + infra + weather + calendar (07:30 weekdays)
-  |     +-- NodeHealth       Prometheus cluster health (every 5 min)
-  |     +-- DailySnippet     Geopolitical intelligence brief (08:00 weekdays)
-  |     +-- BretalonReview   Content review pipeline (every 2 hours)
-  |     +-- FollowupReminder Nag about unanswered emails (09:00 weekdays)
-  |     +-- GitPush          Webhook for Gitea push summaries (persistent)
-  |
-  +-- Draft Queue            Email drafts with Telegram Approve/Reject buttons
-  +-- Dispatcher             Instant data cards (weather, markets, trains, infra)
-  +-- Task Scheduler         User-defined scheduled tasks and reminders
+  +-- Observers                Background tasks on cron schedules
+  +-- Dispatcher               Instant data cards (weather, markets, trains, nodes)
+  +-- Draft Queue              Email drafts with Telegram approve/reject
+  +-- Scheduler                User-defined tasks and reminders
+  +-- Memory                   Persistent key-value memory across sessions
 ```
 
 ---
 
-## Features
+## Configuration Reference
 
-### Channels
+All configuration is in `.env`. Only two values are required.
 
-- **Telegram** -- Full conversational interface with streaming responses, real-time tool status updates, session continuity, model switching, voice input (Whisper transcription), photo/document analysis, and inline keyboards
-- **Email Input** -- Polls IMAP for incoming messages, classifies them, and generates Claude-drafted replies that require explicit Telegram approval before sending
+### Required
 
-### Observers
+| Variable | Description |
+|----------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Your bot token from [@BotFather](https://t.me/BotFather) |
+| `AUTHORIZED_USER_ID` | Your Telegram user ID (from [@userinfobot](https://t.me/userinfobot)) |
 
-Autonomous background tasks running on cron schedules inside a single process. No external cron entries needed.
+### Engine Selection
 
-| Observer | Schedule | Description |
-|----------|----------|-------------|
-| `email_digest` | Every 30 min | Summarises unread emails from 3 accounts |
-| `morning_brief` | 07:30 weekdays | Combined email + infrastructure + weather + calendar briefing |
-| `node_health` | Every 5 min | Queries Prometheus for cluster health, escalates to Telegram |
-| `daily_snippet` | 08:00 weekdays | RSS-powered geopolitical intelligence brief |
-| `bretalon_review` | Every 2 hours | Content review pipeline with editorial email delivery |
-| `followup_reminder` | 09:00 weekdays | Reminds about outbound emails that haven't received a reply |
-| `git_push` | Persistent | HTTP webhook server for Gitea push event summaries |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENGINE_BACKEND` | `ollama` | Which engine to use: `ollama`, `claude_code`, `codex_cli`, or `gemini_cli` |
 
-### Draft Queue
+### Ollama
 
-Outbound email lifecycle with human-in-the-loop approval:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OLLAMA_URL` | `http://localhost:11434` | Ollama server address |
+| `OLLAMA_MODEL` | `qwen3:235b` | Model name (must be pulled first) |
+| `OLLAMA_TOOLS_ENABLED` | `true` | Enable/disable tool use |
+| `OLLAMA_NUM_PREDICT` | `8192` | Max tokens per response |
 
-```
-Incoming email -> Classify -> Engine generates draft reply
-  -> Telegram notification with [Approve] [Reject] buttons
-    -> Approve -> Send via Gmail API -> Auto-create follow-up tracker
-    -> Reject -> Draft discarded
-```
+### Claude Code
 
-### Dispatcher (Data Cards)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLAUDE_BIN` | auto-detected | Path to `claude` binary |
+| `CLAUDE_CWD` | `/home/user` | Working directory for Claude |
+| `CLAUDE_TIMEOUT` | `1800` | Timeout in seconds |
 
-Instant structured responses that bypass the engine for speed:
+### Codex
 
-- Weather (OpenWeatherMap)
-- Cryptocurrency prices (CoinGecko)
-- Gold/silver spot prices
-- Stock market indices / Forex rates
-- UK train departures (Darwin API)
-- Infrastructure status (Prometheus)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CODEX_BIN` | auto-detected | Path to `codex` binary |
+| `CODEX_MODEL` | (Codex default) | Model name (e.g. `gpt-5.2-codex`, `o3`) |
+| `CODEX_CWD` | `/home/user` | Working directory |
+| `OPENAI_API_KEY` | (none) | Your OpenAI API key |
 
----
+### Gemini
 
-## Quick Start
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GEMINI_BIN` | auto-detected | Path to `gemini` binary |
+| `GEMINI_CLI_MODEL` | (Gemini default) | Model name (e.g. `gemini-2.5-flash`) |
 
-```bash
-git clone https://github.com/puretensor/PureClaw.git
-cd PureClaw
-pip install -r requirements.txt
-cp .env.example .env
-# Edit .env: set TELEGRAM_BOT_TOKEN, AUTHORIZED_USER_ID, and choose your engine
-python3 nexus.py
-```
+### Optional
 
-Or deploy as a systemd service:
-
-```bash
-sudo cp nexus.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now nexus.service
-```
+| Variable | Description |
+|----------|-------------|
+| `AGENT_NAME` | Your agent's name (shown in prompts) |
+| `AGENT_PERSONALITY` | Personality injected into system prompt |
+| `SEARXNG_URL` | Self-hosted SearXNG URL for private web search |
+| `WEATHER_DEFAULT_LOCATION` | Default location for `/weather` |
+| `PROMETHEUS_URL` | Prometheus server for `/nodes` and health monitoring |
+| `WHISPER_URL` | Whisper API endpoint for voice transcription |
 
 ---
 
 ## Project Structure
 
 ```
-nexus/
-+-- nexus.py                    # Entry point
-+-- config.py                   # Environment loading, logging
-+-- db.py                       # SQLite: sessions, drafts, followups, tasks, observer state
-+-- engine.py                   # Engine abstraction (sync + async + streaming)
-+-- memory.py                   # Persistent memory injection
-+-- scheduler.py                # User task scheduler (/schedule, /remind)
+PureClaw/
++-- nexus.py                    Entry point
++-- config.py                   Environment loading, system prompt
++-- db.py                       SQLite: sessions, drafts, follow-ups, tasks
++-- engine.py                   Engine abstraction (sync + streaming)
++-- memory.py                   Persistent memory system
++-- scheduler.py                Task scheduler (/schedule, /remind)
 |
 +-- backends/
-|     +-- base.py               # Backend Protocol (structural subtyping)
-|     +-- claude_code.py        # Claude Code CLI backend
-|     +-- anthropic_api.py      # Anthropic Messages API backend
-|     +-- gemini_api.py         # Google Gemini REST API backend
-|     +-- openai_compat.py      # OpenAI-compatible API backend
-|     +-- ollama.py             # Ollama backend with tool use
-|     +-- gemini_cli.py         # Gemini CLI backend
-|     +-- codex_cli.py          # Codex CLI backend
-|     +-- tools.py              # 7 tools (bash, read, write, edit, glob, grep, web_search) + shared tool loop
-|     +-- __init__.py           # Backend factory (lazy singleton)
+|     +-- base.py               Backend Protocol definition
+|     +-- ollama.py             Ollama backend with tool loop
+|     +-- claude_code.py        Claude Code CLI backend
+|     +-- codex_cli.py          Codex CLI backend
+|     +-- gemini_cli.py         Gemini CLI backend
+|     +-- tools.py              7 tools + shared execution loop
+|     +-- __init__.py           Backend factory
 |
 +-- channels/
-|     +-- base.py               # Channel ABC
-|     +-- email_in.py           # IMAP polling email input
-|     +-- telegram/
-|           +-- __init__.py     # TelegramChannel -- bot setup, handler registration
-|           +-- commands.py     # All /command handlers
-|           +-- callbacks.py    # Inline keyboard callback handlers
-|           +-- streaming.py    # StreamingEditor for real-time message updates
+|     +-- telegram/             Bot setup, commands, callbacks, streaming
+|     +-- email_in.py           IMAP polling email input
 |
-+-- dispatcher/
-|     +-- router.py             # Pattern matching for data card triggers
-|     +-- cards.py              # Card formatting and rendering
-|     +-- apis/                 # Weather, crypto, gold, markets, forex, trains, infra
-|
-+-- drafts/
-|     +-- classifier.py         # Rule-based email classification
-|     +-- queue.py              # Draft lifecycle (create, approve, reject, send)
-|
-+-- observers/                  # 7 autonomous background observers
-+-- handlers/                   # Telegram message handlers (voice, photo, document, etc.)
-+-- prompts/                    # System prompts and context
-+-- tests/                      # Test suite
-+-- nexus.service               # systemd unit file
-+-- requirements.txt
++-- dispatcher/                 Data cards (weather, markets, trains, nodes)
++-- drafts/                     Email draft queue with approve/reject
++-- observers/                  Background tasks (email, news, health, git)
++-- handlers/                   Telegram handlers (voice, photo, document, location)
++-- prompts/                    System prompts
++-- tests/                      Test suite (860+ tests)
 ```
-
----
-
-## Configuration
-
-All configuration is via `.env`. See `.env.example` for the full reference with all engine options, tiered by type.
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Yes | Telegram bot token from BotFather |
-| `AUTHORIZED_USER_ID` | Yes | Your Telegram user ID (single-user auth) |
-| `ENGINE_BACKEND` | No | Engine backend (default: `claude_code`) |
-| `ANTHROPIC_API_KEY` | If using `anthropic_api` | Anthropic API key |
-| `GEMINI_API_KEY` | If using `gemini_api` | Google Gemini API key |
-| `GEMINI_API_MODEL` | No | Gemini model (default: `gemini-2.5-flash`) |
-| `OLLAMA_URL` | No | Ollama server URL (default: `http://localhost:11434`) |
-| `OLLAMA_MODEL` | No | Ollama model (default: `qwen3:235b`) |
-| `OPENAI_COMPAT_URL` | If using `openai_compat` | OpenAI-compatible endpoint URL |
-| `OPENAI_COMPAT_KEY` | No | API key for the OpenAI-compatible provider |
-| `OPENAI_COMPAT_MODEL` | No | Model name (default: `gpt-4o`) |
-| `CLAUDE_TIMEOUT` | No | Claude CLI timeout in seconds (default: `1800`) |
 
 ---
 
@@ -254,8 +483,8 @@ python3 -m pytest tests/ -v
 ## Requirements
 
 - Python 3.11+
-- A Telegram bot token (via [@BotFather](https://t.me/BotFather))
-- At least one engine backend configured
+- A Telegram bot token
+- At least one engine: Ollama installed, or a CLI tool (claude / codex / gemini) authenticated
 
 ### Python Dependencies
 
@@ -266,6 +495,23 @@ aiohttp>=3.9.0
 Pillow>=10.0.0
 edge-tts>=6.1.0
 ```
+
+### System Dependencies (optional)
+
+- **ffmpeg** — Required for voice output
+- **Node.js 18+** — Required for CLI engines (claude, codex, gemini)
+- **Ollama** — Required for the local engine
+
+---
+
+## Security
+
+- **Single-user only** — locked to one Telegram user ID
+- **No telemetry** — no analytics, no tracking, no phoning home
+- **No cloud dependency** — Ollama keeps everything local; CLI engines use your own subscriptions
+- **Human-in-the-loop email** — drafts require explicit approval before sending
+- **Minimal dependencies** — stdlib HTTP, no bloated SDK chains
+- **Your hardware** — not a managed platform, not a SaaS product
 
 ---
 
@@ -289,4 +535,4 @@ edge-tts>=6.1.0
 
 ## License
 
-This project is provided as-is for reference and educational purposes. See the repository for details.
+MIT License. See [LICENSE](LICENSE) for details.

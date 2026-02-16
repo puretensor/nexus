@@ -18,14 +18,15 @@ BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 AUTHORIZED_USER_ID = int(os.environ["AUTHORIZED_USER_ID"])
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or shutil.which("claude") or "/usr/bin/claude"
 CLAUDE_CWD = os.environ.get("CLAUDE_CWD", "/home/puretensorai")
-TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "300"))
+TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "1800"))
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:9000/transcribe")
 
-# Engine backend selection (claude_code, anthropic_api, gemini_api, ollama, openai_compat, gemini_cli, codex_cli)
-ENGINE_BACKEND = os.environ.get("ENGINE_BACKEND", "claude_code")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+# Engine backend selection (ollama, claude_code, codex_cli, gemini_cli)
+ENGINE_BACKEND = os.environ.get("ENGINE_BACKEND", "ollama")
+
+# Ollama — local models (default)
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-235b-a22b-q4km")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:235b")
 OLLAMA_TOOLS_ENABLED = os.environ.get("OLLAMA_TOOLS_ENABLED", "true").lower() == "true"
 OLLAMA_TOOL_MAX_ITER = int(os.environ.get("OLLAMA_TOOL_MAX_ITER", "25"))
 OLLAMA_TOOL_TIMEOUT = int(os.environ.get("OLLAMA_TOOL_TIMEOUT", "30"))
@@ -34,24 +35,21 @@ OLLAMA_NUM_PREDICT = int(os.environ.get("OLLAMA_NUM_PREDICT", "8192"))  # thinki
 # Web search — SearXNG preferred (self-hosted, private), DuckDuckGo fallback (zero config)
 SEARXNG_URL = os.environ.get("SEARXNG_URL", "")  # e.g. http://100.105.43.27:8080/search
 
-# Tool use for API backends (all Tier 2 backends)
-API_TOOLS_ENABLED = os.environ.get("API_TOOLS_ENABLED", "true").lower() == "true"
-API_TOOL_MAX_ITER = int(os.environ.get("API_TOOL_MAX_ITER", "25"))
-API_TOOL_TIMEOUT = int(os.environ.get("API_TOOL_TIMEOUT", "30"))
-OPENAI_COMPAT_URL = os.environ.get("OPENAI_COMPAT_URL", "")
-OPENAI_COMPAT_KEY = os.environ.get("OPENAI_COMPAT_KEY", "")
-OPENAI_COMPAT_MODEL = os.environ.get("OPENAI_COMPAT_MODEL", "gpt-4o")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_API_MODEL = os.environ.get("GEMINI_API_MODEL", "gemini-2.5-flash")  # API needs an explicit model
-GEMINI_BIN = os.environ.get("GEMINI_BIN") or shutil.which("gemini") or "/usr/bin/gemini"
-GEMINI_CLI_MODEL = os.environ.get("GEMINI_CLI_MODEL", "")  # empty = use Gemini CLI's own default
+# Claude Code CLI
+# (uses claude binary + CLAUDE_BIN/CLAUDE_CWD above)
+
+# Codex CLI (OpenAI)
 CODEX_BIN = os.environ.get("CODEX_BIN") or shutil.which("codex") or "/usr/bin/codex"
 CODEX_MODEL = os.environ.get("CODEX_MODEL", "")
 CODEX_CWD = os.environ.get("CODEX_CWD", "/home/puretensorai")
+
+# Gemini CLI (Google)
+GEMINI_BIN = os.environ.get("GEMINI_BIN") or shutil.which("gemini") or "/usr/bin/gemini"
+GEMINI_CLI_MODEL = os.environ.get("GEMINI_CLI_MODEL", "")  # empty = use Gemini CLI's own default
 ALERT_BOT_TOKEN = os.environ.get("ALERT_BOT_TOKEN", BOT_TOKEN)  # fallback to main bot
 
 # Agent identity — configurable name and personality
-AGENT_NAME = os.environ.get("AGENT_NAME", "PureClaw")
+AGENT_NAME = os.environ.get("AGENT_NAME", "HAL")
 AGENT_PERSONALITY = os.environ.get("AGENT_PERSONALITY", "")
 
 # Dispatcher

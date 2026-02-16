@@ -33,7 +33,7 @@ class DailySnippetObserver(Observer):
     """Fact-checked daily intelligence brief delivered by email."""
 
     name = "daily_snippet"
-    schedule = "0 8 * * 1-5"  # 8 AM weekdays (UTC)
+    schedule = "0 8 * * 0-4"  # 8 AM weekdays (UTC, 0=Mon)
 
     # RSS feeds — broad coverage, no paywalls on RSS
     RSS_FEEDS = {

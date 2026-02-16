@@ -21,7 +21,7 @@ class GeminiCLIBackend:
         self._model = GEMINI_CLI_MODEL
 
     def get_model_display(self, model: str) -> str:
-        return f"Gemini CLI ({self._model})" if self._model else "Gemini CLI"
+        return "Gemini"
 
     @staticmethod
     def _build_prompt(
