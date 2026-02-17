@@ -3,9 +3,10 @@
 
 Entry point that starts all subsystems:
   - Telegram channel (interactive bot)
+  - Discord channel (interactive bot)
   - Scheduler (cron-like task runner)
   - Observer registry (cron-scheduled background observers)
-  - (Phase 4) Email input channel + draft queue
+  - Email input channel + draft queue
 """
 
 import asyncio
@@ -60,10 +61,17 @@ async def main():
     # Import here to ensure config/db are ready
     from channels.telegram import TelegramChannel
     from channels.email_in import EmailInputChannel
+    from config import DISCORD_BOT_TOKEN
 
     telegram = TelegramChannel()
     registry = _build_observer_registry()
     email_in = EmailInputChannel()
+
+    # Discord — only start if token is configured
+    discord_channel = None
+    if DISCORD_BOT_TOKEN:
+        from channels.discord import DiscordChannel
+        discord_channel = DiscordChannel()
 
     # Graceful shutdown handler
     shutdown_event = asyncio.Event()
@@ -85,6 +93,10 @@ async def main():
         email_in._bot = telegram.app.bot
         await email_in.start()
 
+        # Start Discord channel (if configured)
+        if discord_channel:
+            await discord_channel.start()
+
         # Start observer registry loop
         observer_task = asyncio.create_task(registry.run_loop())
 
@@ -103,6 +115,8 @@ async def main():
                 await observer_task
             except asyncio.CancelledError:
                 pass
+        if discord_channel:
+            await discord_channel.stop()
         await email_in.stop()
         await telegram.stop()
         log.info("NEXUS stopped.")

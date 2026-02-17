@@ -48,6 +48,10 @@ GEMINI_BIN = os.environ.get("GEMINI_BIN") or shutil.which("gemini") or "/usr/bin
 GEMINI_CLI_MODEL = os.environ.get("GEMINI_CLI_MODEL", "")  # empty = use Gemini CLI's own default
 ALERT_BOT_TOKEN = os.environ.get("ALERT_BOT_TOKEN", BOT_TOKEN)  # fallback to main bot
 
+# Discord
+DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
+DISCORD_AUTHORIZED_USER_ID = int(os.environ.get("DISCORD_AUTHORIZED_USER_ID", "0"))
+
 # Agent identity — configurable name and personality
 AGENT_NAME = os.environ.get("AGENT_NAME", "HAL")
 AGENT_PERSONALITY = os.environ.get("AGENT_PERSONALITY", "")
