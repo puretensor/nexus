@@ -38,7 +38,8 @@ def _build_observer_registry():
         ("observers.darwin_consumer", "DarwinConsumer"),
         ("observers.followup_reminder", "FollowupReminderObserver"),
         ("observers.pureclaw_email_responder", "PureClawEmailResponderObserver"),
-        ("observers.alertmanager_monitor", "AlertmanagerMonitorObserver"),
+        # alertmanager_monitor disabled — alerts suppressed from HAL interface
+        # ("observers.alertmanager_monitor", "AlertmanagerMonitorObserver"),
         ("observers.cyber_threat_feed", "CyberThreatFeedObserver"),
         ("observers.intel_briefing", "IntelBriefingObserver"),
     ]

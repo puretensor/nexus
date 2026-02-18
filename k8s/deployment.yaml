@@ -21,9 +21,9 @@ spec:
       securityContext:
         appArmorProfile:
           type: Unconfined
-      # Init container: copy OAuth tokens from read-only Secret to writable emptyDir
-      # Tokens need write access for automatic refresh
       initContainers:
+        # Copy OAuth tokens from read-only Secret to writable emptyDir
+        # Tokens need write access for automatic refresh
         - name: copy-tokens
           image: busybox:1.36
           command:
@@ -38,6 +38,69 @@ spec:
               readOnly: true
             - name: oauth-tokens-writable
               mountPath: /tokens
+
+        # Copy SSH keys from read-only Secret to writable emptyDir
+        # Secret volumes are owned by root — container runs as uid 1000
+        - name: setup-ssh
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              cp /secrets/ssh/* /ssh-writable/
+              chmod 700 /ssh-writable
+              chmod 600 /ssh-writable/id_ed25519
+              chmod 644 /ssh-writable/config
+              touch /ssh-writable/known_hosts
+              chmod 644 /ssh-writable/known_hosts
+              chown -R 1000:1000 /ssh-writable
+          volumeMounts:
+            - name: ssh-keys
+              mountPath: /secrets/ssh
+              readOnly: true
+            - name: ssh-writable
+              mountPath: /ssh-writable
+
+        # Set up Claude CLI home with credentials and project memory
+        - name: setup-claude
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              # Credentials and settings
+              cp /claude-creds/.credentials.json /claude-home/ 2>/dev/null || true
+              echo '{}' > /claude-home/remote-settings.json
+              echo '{}' > /claude-home/settings.json
+              # Project memory directory (Claude CLI looks here based on CWD=/app)
+              mkdir -p /claude-home/projects/-app/memory
+              cp /memory-src/* /claude-home/projects/-app/memory/
+              # Fix ownership
+              chown -R 1000:1000 /claude-home
+              chmod 700 /claude-home
+          volumeMounts:
+            - name: claude-credentials
+              mountPath: /claude-creds
+              readOnly: true
+            - name: claude-home
+              mountPath: /claude-home
+            - name: claude-memory
+              mountPath: /memory-src
+              readOnly: true
+
+        # Fix PVC ownership (runs as root)
+        - name: fix-db-perms
+          image: busybox:1.36
+          securityContext:
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - |
+              chown -R 1000:1000 /data
+          volumeMounts:
+            - name: nexus-data
+              mountPath: /data
 
       containers:
         - name: nexus
@@ -80,13 +143,17 @@ spec:
             # Output files (images, reports)
             - name: nexus-output
               mountPath: /output
-            # SSH keys for infrastructure commands
-            - name: ssh-keys
+            # SSH keys (writable copy with correct ownership)
+            - name: ssh-writable
               mountPath: /app/.ssh
-              readOnly: true
-            # Claude CLI credentials
-            - name: claude-credentials
+            # Claude CLI home
+            - name: claude-home
               mountPath: /app/.claude
+            # CLAUDE.md context
+            - name: claude-context
+              mountPath: /app/CLAUDE.md
+              subPath: CLAUDE.md
+              readOnly: true
             # Google OAuth tokens (writable for refresh)
             - name: oauth-tokens-writable
               mountPath: /app/.config/puretensor/gdrive_tokens
@@ -102,10 +169,22 @@ spec:
           secret:
             secretName: ssh-keys
             defaultMode: 0600
+        - name: ssh-writable
+          emptyDir: {}
         - name: claude-credentials
           secret:
             secretName: claude-credentials
             defaultMode: 0600
+        - name: claude-home
+          emptyDir: {}
+        - name: claude-context
+          configMap:
+            name: claude-context
+            defaultMode: 0644
+        - name: claude-memory
+          configMap:
+            name: claude-memory
+            defaultMode: 0644
         - name: oauth-tokens-secret
           secret:
             secretName: oauth-tokens

@@ -11,6 +11,7 @@ import urllib.request
 from pathlib import Path
 
 from observers.base import Observer, ObserverContext, ObserverResult
+import config
 
 log = logging.getLogger("nexus")
 
@@ -113,7 +114,7 @@ class AlertmanagerMonitorObserver(Observer):
 
         if messages:
             text = "\n\n---\n\n".join(messages)
-            self.send_telegram(f"[ALERTMANAGER]\n\n{text}")
+            self.send_telegram(f"[ALERTMANAGER]\n\n{text}", token=config.ALERT_BOT_TOKEN)
 
         # Update seen state
         new_seen = {}

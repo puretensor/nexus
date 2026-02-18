@@ -35,7 +35,7 @@ class EmailDigestObserver(Observer):
     """Periodic email digest — fetches unread emails and sends Claude summary."""
 
     name = "email_digest"
-    schedule = "*/30 * * * *"
+    schedule = "0 * * * *"
 
     # Paths relative to this file
     OBSERVER_DIR = Path(__file__).parent
