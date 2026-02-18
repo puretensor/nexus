@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus
+  namespace: nexus
+  labels:
+    app: nexus
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Only one Telegram poller allowed
+  selector:
+    matchLabels:
+      app: nexus
+  template:
+    metadata:
+      labels:
+        app: nexus
+    spec:
+      # Required on kernel 6.17-pve — AppArmor blocks socket creation otherwise
+      securityContext:
+        appArmorProfile:
+          type: Unconfined
+      # Init container: copy OAuth tokens from read-only Secret to writable emptyDir
+      # Tokens need write access for automatic refresh
+      initContainers:
+        - name: copy-tokens
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              cp /secrets/oauth-tokens/* /tokens/ 2>/dev/null || true
+              chmod 600 /tokens/* 2>/dev/null || true
+          volumeMounts:
+            - name: oauth-tokens-secret
+              mountPath: /secrets/oauth-tokens
+              readOnly: true
+            - name: oauth-tokens-writable
+              mountPath: /tokens
+
+      containers:
+        - name: nexus
+          image: nexus:v1.0.0
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 9876
+              name: webhook
+          envFrom:
+            - secretRef:
+                name: nexus-env
+            - configMapRef:
+                name: nexus-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "2000m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9876
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9876
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            # Persistent data (SQLite DB, memory, observer state)
+            - name: nexus-data
+              mountPath: /data
+            # Output files (images, reports)
+            - name: nexus-output
+              mountPath: /output
+            # SSH keys for infrastructure commands
+            - name: ssh-keys
+              mountPath: /app/.ssh
+              readOnly: true
+            # Claude CLI credentials
+            - name: claude-credentials
+              mountPath: /app/.claude
+            # Google OAuth tokens (writable for refresh)
+            - name: oauth-tokens-writable
+              mountPath: /app/.config/puretensor/gdrive_tokens
+
+      volumes:
+        - name: nexus-data
+          persistentVolumeClaim:
+            claimName: nexus-data
+        - name: nexus-output
+          persistentVolumeClaim:
+            claimName: nexus-output
+        - name: ssh-keys
+          secret:
+            secretName: ssh-keys
+            defaultMode: 0600
+        - name: claude-credentials
+          secret:
+            secretName: claude-credentials
+            defaultMode: 0600
+        - name: oauth-tokens-secret
+          secret:
+            secretName: oauth-tokens
+            defaultMode: 0600
+        - name: oauth-tokens-writable
+          emptyDir: {}

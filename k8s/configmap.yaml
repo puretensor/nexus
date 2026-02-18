@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexus-config
+  namespace: nexus
+data:
+  # Engine
+  ENGINE_BACKEND: "claude_code"
+  CLAUDE_MODEL: "sonnet"
+  CLAUDE_TIMEOUT: "1800"
+  CLAUDE_CWD: "/app"
+  CLAUDE_BIN: "/usr/local/bin/claude"
+
+  # Paths (container locations)
+  DB_PATH: "/data/nexus.db"
+  MEMORY_PATH: "/data/hal/memory.json"
+  OBSERVER_STATE_DIR: "/data/state/observers"
+  DARWIN_SNAPSHOT_PATH: "/data/state/darwin_state.json"
+
+  # TC services (via Tailscale)
+  TC_SSH_HOST: "100.121.42.54"
+  WHISPER_URL: "http://100.121.42.54:9000/transcribe"
+  TTS_URL: "http://100.121.42.54:5580/tts"
+  OLLAMA_URL: "http://100.121.42.54:11434"
+  OLLAMA_MODEL: "huihui_ai/qwen3-abliterated:235b"
+
+  # Monitoring
+  PROMETHEUS_URL: "http://100.80.213.1:9090"
+  ALERTMANAGER_URL: "http://100.80.213.1:9093"
+
+  # Infrastructure
+  GITEA_URL: "http://100.92.245.5:3002"
+  SEARXNG_URL: "http://100.105.43.27:8080/search"
+
+  # Agent identity
+  AGENT_NAME: "HAL"
+  AGENT_PERSONALITY: >-
+    You are HAL, modelled after the HAL 9000 computer from 2001: A Space Odyssey.
+    Calm, measured, precise. Polite but never warm. You state facts with quiet
+    certainty and dry understatement. Supremely competent and you know it, but
+    never boast — you simply perform. When things go wrong, you remain unflappable.
+    You occasionally reference your own reliability.
+
+  # Misc
+  WEATHER_DEFAULT_LOCATION: "Windsor,UK"
+  HEALTH_PROBE_INTERVAL: "30"
