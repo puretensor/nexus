@@ -68,7 +68,9 @@ class CyberThreatFeedObserver(Observer):
     name = "cyber_threat_feed"
     schedule = "0 * * * *"  # every hour
 
-    STATE_FILE = Path(__file__).parent / ".state" / "cyber_threat_feed.json"
+    STATE_FILE = Path(
+        os.environ.get("OBSERVER_STATE_DIR", str(Path(__file__).parent / ".state"))
+    ) / "cyber_threat_feed.json"
 
     # -------------------------------------------------------------------
     # State management (track what we've already published)
@@ -440,36 +442,27 @@ class CyberThreatFeedObserver(Observer):
     # Ollama LLM analysis
     # -------------------------------------------------------------------
 
-    def call_ollama(self, prompt: str, timeout: int = 300) -> str:
-        """Call Ollama directly via HTTP API (not through Nexus engine, to avoid
-        tool calling overhead for a pure generation task)."""
-        payload = {
-            "model": OLLAMA_MODEL,
-            "messages": [
-                {"role": "system", "content": "You are a cybersecurity threat analyst. Produce clear, concise, technically accurate threat briefings. Output only the requested HTML content, no preamble or commentary. Do not use markdown code fences around the output."},
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-            "options": {"num_predict": 8192},
-        }
+    SYSTEM_PROMPT = (
+        "You are a cybersecurity threat analyst. Produce clear, concise, "
+        "technically accurate threat briefings. Output only the requested HTML "
+        "content, no preamble or commentary. Do not use markdown code fences "
+        "around the output."
+    )
 
-        try:
-            data = json.dumps(payload).encode()
-            req = urllib.request.Request(
-                f"{OLLAMA_URL}/api/chat",
-                data=data,
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                result = json.loads(resp.read().decode())
+    def call_llm_for_briefing(self, prompt: str, timeout: int = 300) -> tuple[str, str]:
+        """Call LLM via shared module (Ollama-first, Gemini-fallback).
 
-            content = result.get("message", {}).get("content", "")
-            # Strip thinking tokens
-            content = re.sub(r"<think>.*?</think>\s*", "", content, flags=re.DOTALL)
-            return content.strip()
-        except Exception as e:
-            log.error("Ollama call failed: %s", e)
-            return ""
+        Returns:
+            (content, backend_name) — the generated HTML and which backend was used.
+        """
+        from observers.llm import call_llm
+        return call_llm(
+            system_prompt=self.SYSTEM_PROMPT,
+            user_prompt=prompt,
+            timeout=timeout,
+            num_predict=8192,
+            temperature=0.4,
+        )
 
     # -------------------------------------------------------------------
     # Build the intelligence bundle for LLM analysis
@@ -1096,13 +1089,18 @@ main {{
                      len(delta["new_malware"]), len(delta["new_c2s"]),
                      len(delta["new_articles"]))
 
-        # 3. Generate briefing via Ollama
-        log.info("Generating briefing via Ollama (%s)...", OLLAMA_MODEL)
+        # 3. Generate briefing via LLM (Ollama-first, Gemini-fallback)
+        log.info("Generating briefing via LLM...")
         prompt = self.build_analysis_prompt(intel, timestamp, delta=delta)
-        briefing_html = self.call_ollama(prompt, timeout=300)
+        try:
+            briefing_html, backend_used = self.call_llm_for_briefing(prompt, timeout=300)
+        except RuntimeError as e:
+            msg = f"LLM generation failed: {e}"
+            self.send_telegram(f"[cyber_threat_feed] ERROR: {msg}")
+            return ObserverResult(success=False, error=msg)
 
         if not briefing_html:
-            msg = "Ollama returned empty response"
+            msg = "LLM returned empty response"
             self.send_telegram(f"[cyber_threat_feed] ERROR: {msg}")
             return ObserverResult(success=False, error=msg)
 
@@ -1110,7 +1108,7 @@ main {{
         briefing_html = re.sub(r"^```(?:html)?\s*", "", briefing_html)
         briefing_html = re.sub(r"\s*```$", "", briefing_html)
 
-        log.info("Briefing generated: %d chars", len(briefing_html))
+        log.info("Briefing generated via %s: %d chars", backend_used, len(briefing_html))
 
         # 4. Build individual briefing page (permalink in /briefings/)
         individual_briefing = self.build_full_page(briefing_html, timestamp, intel_stats)
@@ -1166,6 +1164,7 @@ main {{
         tg_msg = (
             f"[CYBER THREAT BRIEFING] {timestamp}\n\n"
             f"{summary}\n\n"
+            f"Engine: {backend_used}\n"
             f"https://cyber.puretensor.ai/briefings/\n"
             f"https://cyber.varangian.ai/briefings/\n"
             f"Permalink: https://cyber.puretensor.ai/briefings/{briefing_filename}"
@@ -1243,12 +1242,17 @@ if __name__ == "__main__":
         }
         print(f"Stats: {intel_stats}")
 
-        print("Generating briefing via Ollama...")
+        print("Generating briefing via LLM (Ollama → Gemini fallback)...")
         prompt = observer.build_analysis_prompt(intel, timestamp)
-        briefing_html = observer.call_ollama(prompt, timeout=300)
+        try:
+            briefing_html, backend = observer.call_llm_for_briefing(prompt, timeout=300)
+            print(f"  Backend: {backend}")
+        except RuntimeError as e:
+            print(f"ERROR: LLM generation failed: {e}", file=sys.stderr)
+            sys.exit(1)
 
         if not briefing_html:
-            print("ERROR: Ollama returned empty response", file=sys.stderr)
+            print("ERROR: LLM returned empty response", file=sys.stderr)
             sys.exit(1)
 
         briefing_html = re.sub(r"^```(?:html)?\s*", "", briefing_html)

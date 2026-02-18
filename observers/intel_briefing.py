@@ -34,7 +34,10 @@ log = logging.getLogger("nexus")
 
 SCRIPT_DIR = Path(__file__).parent
 STATE_DIR = SCRIPT_DIR / ".state"
-RSS_CONF = Path.home() / ".config" / "puretensor" / "rss_feeds.conf"
+RSS_CONF = Path(os.environ.get(
+    "RSS_FEEDS_CONF",
+    str(Path.home() / ".config" / "puretensor" / "rss_feeds.conf"),
+))
 
 # GCP deployment
 GCP_SSH_HOST = "puretensorai@100.116.141.107"
@@ -66,7 +69,9 @@ class IntelBriefingObserver(Observer):
     MAX_GDELT = 20
 
     # State file tracks published briefing slugs to avoid duplicates
-    STATE_FILE = STATE_DIR / "intel_briefing_published.json"
+    STATE_FILE = Path(
+        os.environ.get("OBSERVER_STATE_DIR", str(STATE_DIR))
+    ) / "intel_briefing_published.json"
 
     # ── RSS Feed Parsing ─────────────────────────────────────────────────
 
@@ -234,49 +239,30 @@ class IntelBriefingObserver(Observer):
 
     # ── Ollama LLM Call ──────────────────────────────────────────────────
 
-    def _call_ollama(self, prompt: str, timeout: int = 300) -> str:
-        """Call Ollama API directly for briefing generation."""
-        url = f"{OLLAMA_URL}/api/chat"
-        payload = json.dumps({
-            "model": OLLAMA_MODEL,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a senior intelligence analyst at PureTensor Intel. "
-                        "You produce concise, evidence-based strategic intelligence briefings. "
-                        "Your tone is analytical, dispassionate, and precise. "
-                        "You cite sources by name. You avoid speculation beyond what the evidence supports. "
-                        "You use British English spelling conventions. "
-                        "Do NOT use markdown formatting. Output clean plain text with section headers in UPPERCASE. "
-                        "Do NOT include any <think> tags or thinking process in your output."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "stream": False,
-            "options": {
-                "num_predict": 6144,
-                "temperature": 0.4,
-            },
-        }).encode("utf-8")
+    SYSTEM_PROMPT = (
+        "You are a senior intelligence analyst at PureTensor Intel. "
+        "You produce concise, evidence-based strategic intelligence briefings. "
+        "Your tone is analytical, dispassionate, and precise. "
+        "You cite sources by name. You avoid speculation beyond what the evidence supports. "
+        "You use British English spelling conventions. "
+        "Do NOT use markdown formatting. Output clean plain text with section headers in UPPERCASE. "
+        "Do NOT include any <think> tags or thinking process in your output."
+    )
 
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
+    def _call_llm(self, prompt: str, timeout: int = 360) -> tuple[str, str]:
+        """Call LLM via shared module (Ollama-first, Gemini-fallback).
+
+        Returns:
+            (content, backend_name) — the generated text and which backend was used.
+        """
+        from observers.llm import call_llm
+        return call_llm(
+            system_prompt=self.SYSTEM_PROMPT,
+            user_prompt=prompt,
+            timeout=timeout,
+            num_predict=6144,
+            temperature=0.4,
         )
-
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                result = json.loads(resp.read())
-                content = result.get("message", {}).get("content", "")
-                # Strip thinking tags if present
-                content = re.sub(r"<think>.*?</think>\s*", "", content, flags=re.DOTALL)
-                return content.strip()
-        except Exception as e:
-            log.error("intel_briefing: Ollama call failed: %s", e)
-            raise
 
     # ── Deduplication ────────────────────────────────────────────────────
 
@@ -355,8 +341,9 @@ KEY ASSESSMENTS
 
 Remember: analytical, dispassionate, evidence-based. British English. No markdown. No speculation beyond evidence."""
 
-        log.info("intel_briefing: sending %d articles to Ollama for analysis", len(all_articles))
-        raw = self._call_ollama(prompt, timeout=360)
+        log.info("intel_briefing: sending %d articles to LLM for analysis", len(all_articles))
+        raw, self._last_backend = self._call_llm(prompt, timeout=360)
+        log.info("intel_briefing: briefing generated via %s (%d chars)", self._last_backend, len(raw))
 
         # Parse the response
         title = "Strategic Intelligence Briefing"
@@ -397,6 +384,7 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
             "datetime": now,
             "article_count": len(all_articles),
             "source_count": len(set(a["source"] for a in all_articles)),
+            "backend": getattr(self, "_last_backend", "Ollama/qwen3-235b-a22b-q4km"),
         }
 
     # ── HTML Generation ──────────────────────────────────────────────────
@@ -625,7 +613,7 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
 {body_html}
 
             <div class="automated-notice">
-                <strong>Automated Intelligence Briefing</strong> &mdash; This briefing was generated by the PureTensor Intel pipeline: open-source data fusion (GDELT + {source_count} RSS feeds), Blackwell-class inference (Qwen3-235B), structured analytical framework. {article_count} sources processed at {time_escaped} on {date_escaped}. All automated briefings are subject to editorial review.
+                <strong>Automated Intelligence Briefing</strong> &mdash; This briefing was generated by the PureTensor Intel pipeline: open-source data fusion (GDELT + {source_count} RSS feeds), LLM inference ({html_escape(briefing.get('backend', 'Ollama/qwen3-235b-a22b-q4km'))}), structured analytical framework. {article_count} sources processed at {time_escaped} on {date_escaped}. All automated briefings are subject to editorial review.
             </div>
 
         </div>
@@ -849,10 +837,12 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
 
         # 7. Report
         elapsed = time.time() - start_time
+        backend_label = getattr(self, "_last_backend", "Unknown")
         message = (
             f"Intel briefing published:\n"
             f"  {briefing['title']}\n"
             f"  {url}\n"
+            f"  Engine: {backend_label}\n"
             f"  {total_articles} sources | {elapsed:.0f}s pipeline"
         )
         self.send_telegram(message)
@@ -904,9 +894,10 @@ if __name__ == "__main__":
             print(f"  - [{art['source']}] {art['title'][:80]}")
         sys.exit(0)
 
-    print("[intel_briefing] Generating briefing via Ollama...")
+    print("[intel_briefing] Generating briefing via LLM (Ollama → Gemini fallback)...")
     briefing = obs._generate_briefing(rss, gdelt)
     print(f"  Title: {briefing['title']}")
+    print(f"  Backend: {briefing.get('backend', 'unknown')}")
     print(f"  Category: {briefing['category']}")
     print(f"  Slug: {briefing['slug']}")
 

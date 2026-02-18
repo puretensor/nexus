@@ -1,0 +1,17 @@
+[Unit]
+Description=Nexus Observer Failover Runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/nexus-failover/nexus/failover/runner.py
+WorkingDirectory=/opt/nexus-failover/nexus
+EnvironmentFile=/opt/nexus-failover/.env
+TimeoutStartSec=600
+User=root
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nexus-failover
