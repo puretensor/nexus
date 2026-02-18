@@ -13,7 +13,7 @@ from config import log, AGENT_NAME
 # Config
 # ---------------------------------------------------------------------------
 
-MEMORY_PATH = Path(os.path.expanduser("~/.hal/memory.json"))
+MEMORY_PATH = Path(os.environ.get("MEMORY_PATH", os.path.expanduser("~/.hal/memory.json")))
 
 VALID_CATEGORIES = {"preferences", "infrastructure", "people", "projects", "general"}
 

@@ -1,0 +1,11 @@
+.git
+__pycache__
+*.pyc
+.env
+nexus.db
+observers/.state/
+tests/
+.pytest_cache/
+k8s/
+*.md
+LICENSE

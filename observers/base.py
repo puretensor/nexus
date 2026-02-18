@@ -5,6 +5,7 @@ The registry calls run() on schedule and delivers results to Telegram.
 """
 
 import logging
+import os
 import urllib.parse
 import urllib.request
 from abc import ABC, abstractmethod
@@ -23,7 +24,7 @@ class ObserverContext:
 
     now: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     state_dir: Path = field(
-        default_factory=lambda: Path(__file__).parent / ".state"
+        default_factory=lambda: Path(os.environ.get("OBSERVER_STATE_DIR", str(Path(__file__).parent / ".state")))
     )
 
     def __post_init__(self):

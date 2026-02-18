@@ -13,6 +13,7 @@ ALLOWED_PREFIXES = (
     "/tmp/pureclaw_output/",
     "/tmp/",
     os.path.expanduser("~/images/"),
+    "/output/",
 )
 
 # File extensions/names to skip (internal files)

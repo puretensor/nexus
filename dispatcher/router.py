@@ -160,8 +160,12 @@ async def handle_markets_unified(chat, bot) -> None:
 
 
 async def handle_trains(from_crs: str, to_crs: str, chat, bot) -> None:
-    """Fetch train departures and send card."""
-    data = await fetch_trains(from_crs, to_crs)
+    """Fetch train departures and send card. Prefers live Darwin, falls back to Huxley2."""
+    try:
+        from dispatcher.apis.darwin import fetch_darwin_departures
+        data = await fetch_darwin_departures(from_crs, to_crs)
+    except (ImportError, DispatchError):
+        data = await fetch_trains(from_crs, to_crs)
     png_buf, caption = render_trains(data)
 
     keyboard = InlineKeyboardMarkup([[

@@ -1146,7 +1146,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def transcribe_voice(voice_bytes: bytes) -> str:
-    """Send OGG audio to the Whisper server and return transcription text."""
+    """Send OGG audio to Whisper and return transcription text.
+
+    Uses TC faster-whisper when online, falls back to OpenAI Whisper API.
+    """
+    from health_probes import is_tc_whisper_online
+
+    if is_tc_whisper_online():
+        return await _transcribe_tc_whisper(voice_bytes)
+    else:
+        log.info("TC Whisper offline, falling back to OpenAI Whisper API")
+        return await _transcribe_openai_whisper(voice_bytes)
+
+
+async def _transcribe_tc_whisper(voice_bytes: bytes) -> str:
+    """Transcribe via TC faster-whisper server."""
     form = aiohttp.FormData()
     form.add_field("audio", voice_bytes, filename="voice.ogg", content_type="audio/ogg")
     async with aiohttp.ClientSession() as session:
@@ -1156,6 +1170,29 @@ async def transcribe_voice(voice_bytes: bytes) -> str:
                 raise RuntimeError(f"Whisper returned {resp.status}: {body[:300]}")
             data = await resp.json()
             return data.get("text", "").strip()
+
+
+async def _transcribe_openai_whisper(voice_bytes: bytes) -> str:
+    """Transcribe via OpenAI Whisper API (fallback when TC is offline)."""
+    import io
+    import os
+
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("TC Whisper offline and no OPENAI_API_KEY configured")
+
+    try:
+        import openai
+        client = openai.AsyncOpenAI(api_key=api_key)
+        audio_file = io.BytesIO(voice_bytes)
+        audio_file.name = "voice.ogg"
+        transcript = await client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+        )
+        return transcript.text.strip()
+    except Exception as e:
+        raise RuntimeError(f"OpenAI Whisper fallback failed: {e}")
 
 
 @authorized

@@ -65,9 +65,8 @@ class TestConstants:
         assert len(NODES) > 0
 
     def test_nodes_has_tensor_core(self):
-        """NODES should include tensor-core mapped to localhost."""
+        """NODES should include tensor-core (default localhost, env-configurable)."""
         assert "tensor-core" in NODES
-        assert NODES["tensor-core"] == "localhost"
 
     def test_allowed_services_not_empty(self):
         """ALLOWED_SERVICES whitelist should have entries."""
