@@ -11,7 +11,7 @@ log = logging.getLogger("nexus")
 # Node SSH targets — map friendly names to SSH hosts
 # These must match ~/.ssh/config or ~/.ssh/config.puretensor
 NODES = {
-    "tensor-core": "localhost",
+    "tensor-core": os.environ.get("TC_SSH_HOST", "localhost"),
     "mon1": "mon1",
     "mon2": "mon2",
     "mon3": "mon3",

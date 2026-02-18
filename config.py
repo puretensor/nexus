@@ -37,6 +37,7 @@ SEARXNG_URL = os.environ.get("SEARXNG_URL", "")  # e.g. http://GCP_MEDIUM_TAILSC
 
 # Claude Code CLI
 # (uses claude binary + CLAUDE_BIN/CLAUDE_CWD above)
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "sonnet")
 
 # Codex CLI (OpenAI)
 CODEX_BIN = os.environ.get("CODEX_BIN") or shutil.which("codex") or "/usr/bin/codex"
@@ -75,7 +76,7 @@ SNIPPET_FROM = os.environ.get("SNIPPET_FROM", "")
 SNIPPET_TO = os.environ.get("SNIPPET_TO", "")
 
 # Paths
-DB_PATH = Path(__file__).parent / "nexus.db"
+DB_PATH = Path(os.environ.get("DB_PATH", str(Path(__file__).parent / "nexus.db")))
 SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "nexus_system_prompt.md"
 CONTEXT_PATH = Path(__file__).parent / "prompts" / "pureclaw_context.md"
 

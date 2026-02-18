@@ -35,8 +35,12 @@ def _build_observer_registry():
         ("observers.daily_snippet", "DailySnippetObserver"),
         ("observers.bretalon_review", "BretalonReviewObserver"),
         ("observers.git_push", "GitPushObserver"),
+        ("observers.darwin_consumer", "DarwinConsumer"),
         ("observers.followup_reminder", "FollowupReminderObserver"),
         ("observers.pureclaw_email_responder", "PureClawEmailResponderObserver"),
+        ("observers.alertmanager_monitor", "AlertmanagerMonitorObserver"),
+        ("observers.cyber_threat_feed", "CyberThreatFeedObserver"),
+        ("observers.intel_briefing", "IntelBriefingObserver"),
     ]
 
     import importlib
@@ -85,6 +89,10 @@ async def main():
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, handle_signal)
 
+    # Start TC health probe
+    from health_probes import get_probe
+    health_probe_task = asyncio.create_task(get_probe().run_loop())
+
     try:
         # Start Telegram channel
         await telegram.start()
@@ -109,6 +117,11 @@ async def main():
         log.info("Keyboard interrupt received")
     finally:
         log.info("NEXUS shutting down...")
+        health_probe_task.cancel()
+        try:
+            await health_probe_task
+        except asyncio.CancelledError:
+            pass
         if observer_task:
             observer_task.cancel()
             try:

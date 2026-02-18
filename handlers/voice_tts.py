@@ -6,6 +6,8 @@ import re
 import tempfile
 from pathlib import Path
 
+import os
+
 import aiohttp
 
 log = logging.getLogger("nexus")
@@ -13,8 +15,8 @@ log = logging.getLogger("nexus")
 # Per-chat voice mode state (in-memory, resets on restart)
 _voice_mode: dict[int, bool] = {}
 
-# Local TTS API (HAL 9000 voice via Qwen3-TTS daemon)
-TTS_API_URL = "http://127.0.0.1:5580/tts"
+# TTS API — configurable, defaults to TC Tailscale IP
+TTS_API_URL = os.environ.get("TTS_URL", "http://TC_TAILSCALE_IP:5580/tts")
 
 
 def is_voice_mode(chat_id: int) -> bool:
@@ -57,10 +59,16 @@ def _clean_for_tts(text: str) -> str:
 
 
 async def text_to_voice_note(text: str) -> bytes | None:
-    """Convert text to OGG voice note bytes using local HAL 9000 TTS.
+    """Convert text to OGG voice note bytes using HAL 9000 TTS.
 
-    Returns OGG bytes or None on failure.
+    Returns OGG bytes or None on failure. Skips gracefully when TC is offline.
     """
+    from health_probes import is_tc_tts_online
+
+    if not is_tc_tts_online():
+        log.info("TC TTS offline — skipping voice note")
+        return None
+
     cleaned = _clean_for_tts(text)
     if not cleaned:
         return None

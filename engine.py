@@ -11,7 +11,7 @@ import asyncio
 import json
 import logging
 
-from config import SYSTEM_PROMPT
+from config import SYSTEM_PROMPT, CLAUDE_MODEL
 
 try:
     from memory import get_memories_for_injection
@@ -192,10 +192,10 @@ async def _read_stream(proc, on_progress=None, streaming_editor=None) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def get_model_display(model: str = "sonnet") -> str:
+def get_model_display(model: str = CLAUDE_MODEL) -> str:
     """Return a human-readable label for the current backend + model.
 
-    E.g. 'Sonnet 4.5' for claude_code, 'qwen3:30b-a3b' for ollama.
+    E.g. 'Claude Sonnet' for claude_code, 'qwen3:30b-a3b' for ollama.
     """
     from backends import get_backend
 
@@ -207,7 +207,7 @@ def get_model_display(model: str = "sonnet") -> str:
 
 def call_sync(
     prompt: str,
-    model: str = "sonnet",
+    model: str = CLAUDE_MODEL,
     session_id: str | None = None,
     timeout: int = 300,
 ) -> dict:
