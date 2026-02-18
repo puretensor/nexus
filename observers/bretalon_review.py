@@ -2,7 +2,7 @@
 """Bretalon Article Review Observer — sends review emails before scheduled publishes.
 
 Checks WordPress for articles scheduled to publish within the next 36 hours.
-Sends a review email from hh@bretalon.com to Alan and Heimir before publish.
+Sends a review email to configured recipients before publish.
 Tracks sent emails in a state file to avoid duplicates.
 
 Schedule: every 2 hours (0 */2 * * *)
@@ -44,11 +44,11 @@ class BretalonReviewObserver(Observer):
     # State file for tracking already-emailed post IDs
     STATE_FILE = Path(__file__).parent / ".state" / "bretalon_review_sent.json"
 
-    # -- SMTP config (env var overrides with sensible defaults) --
+    # -- SMTP config (all from env vars, no defaults) --
 
     @property
     def smtp_host(self):
-        return os.environ.get("BRETALON_SMTP_HOST", "mail.privateemail.com")
+        return os.environ.get("BRETALON_SMTP_HOST", "")
 
     @property
     def smtp_port(self):
@@ -56,7 +56,7 @@ class BretalonReviewObserver(Observer):
 
     @property
     def smtp_user(self):
-        return os.environ.get("BRETALON_SMTP_USER", "hh@bretalon.com")
+        return os.environ.get("BRETALON_SMTP_USER", "")
 
     @property
     def smtp_pass(self):
@@ -64,7 +64,7 @@ class BretalonReviewObserver(Observer):
 
     @property
     def sender_from(self):
-        return os.environ.get("BRETALON_FROM", "H. Helgason <hh@bretalon.com>")
+        return os.environ.get("BRETALON_FROM", "")
 
     @property
     def recipients(self):

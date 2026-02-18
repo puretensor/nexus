@@ -498,7 +498,7 @@ Your task:
 
     def send_email(self, subject: str, html_content: str, plain_text: str) -> bool:
         """Send HTML email via SMTP. Config from environment variables."""
-        host = os.environ.get("SNIPPET_SMTP_HOST", "mail.privateemail.com")
+        host = os.environ.get("SNIPPET_SMTP_HOST", "")
         port = int(os.environ.get("SNIPPET_SMTP_PORT", "587"))
         user = os.environ.get("SNIPPET_SMTP_USER", "")
         password = os.environ.get("SNIPPET_SMTP_PASS", "")
@@ -515,7 +515,7 @@ Your task:
 
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = f"H. Helgason <{from_addr}>"
+        msg["From"] = from_addr
         msg["To"] = ", ".join(to_addrs)
 
         msg.attach(MIMEText(plain_text, "plain", "utf-8"))
