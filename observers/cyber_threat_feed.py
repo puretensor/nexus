@@ -450,7 +450,8 @@ class CyberThreatFeedObserver(Observer):
     )
 
     def call_llm_for_briefing(self, prompt: str, timeout: int = 300) -> tuple[str, str]:
-        """Call LLM via shared module (Ollama-first, Gemini-fallback).
+        """Call LLM via shared module — Gemini-first to avoid burning GPU on
+        routine threat summaries.  Falls back to Ollama if Gemini is unavailable.
 
         Returns:
             (content, backend_name) — the generated HTML and which backend was used.
@@ -462,6 +463,8 @@ class CyberThreatFeedObserver(Observer):
             timeout=timeout,
             num_predict=8192,
             temperature=0.4,
+            preferred_backend="gemini",
+            override_gemini_model="gemini-2.5-flash-lite",
         )
 
     # -------------------------------------------------------------------
