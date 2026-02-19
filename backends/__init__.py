@@ -22,6 +22,7 @@ def get_backend():
     _REGISTRY = {
         "ollama": ("backends.ollama", "OllamaBackend"),
         "claude_code": ("backends.claude_code", "ClaudeCodeBackend"),
+        "anthropic_api": ("backends.anthropic_api", "AnthropicAPIBackend"),
         "codex_cli": ("backends.codex_cli", "CodexCLIBackend"),
         "gemini_cli": ("backends.gemini_cli", "GeminiCLIBackend"),
     }
