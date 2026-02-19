@@ -29,22 +29,57 @@ def call_llm(
     timeout: int = 300,
     num_predict: int = 8192,
     temperature: float = 0.4,
+    preferred_backend: str = "auto",
+    override_ollama_model: str | None = None,
+    override_gemini_model: str | None = None,
 ) -> tuple[str, str]:
-    """Call an LLM with Ollama-first, Gemini-fallback logic.
+    """Call an LLM with configurable backend priority.
+
+    Args:
+        preferred_backend:
+            "auto"   — Ollama first, Gemini fallback (default, legacy behaviour)
+            "gemini" — Gemini first, Ollama fallback
+            "ollama" — Ollama only, no Gemini fallback
+        override_ollama_model: Use this Ollama model instead of OLLAMA_MODEL env var.
+        override_gemini_model: Use this Gemini model instead of GEMINI_MODEL env var.
 
     Returns:
         (content, backend_name) — the generated text and which backend was used.
         backend_name is e.g. "Ollama/qwen3-235b-a22b-q4km" or "Gemini/gemini-2.5-flash".
 
     Raises:
-        RuntimeError if both backends fail.
+        RuntimeError if all attempted backends fail.
     """
     ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-    ollama_model = os.environ.get("OLLAMA_MODEL", "qwen3-235b-a22b-q4km")
+    ollama_model = override_ollama_model or os.environ.get("OLLAMA_MODEL", "qwen3-235b-a22b-q4km")
     gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    gemini_model = override_gemini_model or os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
-    # --- Try Ollama first (skip if URL is empty) ---
+    if preferred_backend == "gemini":
+        # Gemini first, Ollama fallback
+        return _try_gemini_then_ollama(
+            gemini_key, gemini_model, ollama_url, ollama_model,
+            system_prompt, user_prompt, timeout, num_predict, temperature,
+        )
+    elif preferred_backend == "ollama":
+        # Ollama only
+        return _try_ollama_only(
+            ollama_url, ollama_model,
+            system_prompt, user_prompt, timeout, num_predict, temperature,
+        )
+    else:
+        # "auto" — Ollama first, Gemini fallback (legacy default)
+        return _try_ollama_then_gemini(
+            ollama_url, ollama_model, gemini_key, gemini_model,
+            system_prompt, user_prompt, timeout, num_predict, temperature,
+        )
+
+
+def _try_ollama_then_gemini(
+    ollama_url, ollama_model, gemini_key, gemini_model,
+    system_prompt, user_prompt, timeout, num_predict, temperature,
+) -> tuple[str, str]:
+    """Ollama first, Gemini fallback."""
     if ollama_url:
         try:
             content = _call_ollama(
@@ -59,7 +94,6 @@ def call_llm(
         except Exception as e:
             log.warning("Ollama call failed (%s), trying Gemini fallback", e)
 
-    # --- Gemini fallback ---
     if not gemini_key:
         raise RuntimeError("Ollama unavailable and GEMINI_API_KEY not set — cannot generate")
 
@@ -75,6 +109,61 @@ def call_llm(
         raise RuntimeError("Gemini returned empty response")
     except Exception as e:
         raise RuntimeError(f"Both Ollama and Gemini failed. Gemini error: {e}") from e
+
+
+def _try_gemini_then_ollama(
+    gemini_key, gemini_model, ollama_url, ollama_model,
+    system_prompt, user_prompt, timeout, num_predict, temperature,
+) -> tuple[str, str]:
+    """Gemini first, Ollama fallback."""
+    if gemini_key:
+        try:
+            content = _call_gemini(
+                gemini_key, gemini_model, system_prompt, user_prompt,
+                timeout=timeout, temperature=temperature,
+            )
+            if content:
+                backend = f"Gemini/{gemini_model}"
+                log.info("LLM call succeeded via %s (%d chars)", backend, len(content))
+                return content, backend
+            log.warning("Gemini returned empty response, trying Ollama fallback")
+        except Exception as e:
+            log.warning("Gemini call failed (%s), trying Ollama fallback", e)
+
+    if not ollama_url:
+        raise RuntimeError("Gemini unavailable and OLLAMA_URL not set — cannot generate")
+
+    try:
+        content = _call_ollama(
+            ollama_url, ollama_model, system_prompt, user_prompt,
+            timeout=timeout, num_predict=num_predict, temperature=temperature,
+        )
+        if content:
+            backend = f"Ollama/{ollama_model}"
+            log.info("LLM call succeeded via %s (%d chars)", backend, len(content))
+            return content, backend
+        raise RuntimeError("Ollama returned empty response")
+    except Exception as e:
+        raise RuntimeError(f"Both Gemini and Ollama failed. Ollama error: {e}") from e
+
+
+def _try_ollama_only(
+    ollama_url, ollama_model,
+    system_prompt, user_prompt, timeout, num_predict, temperature,
+) -> tuple[str, str]:
+    """Ollama only, no fallback."""
+    if not ollama_url:
+        raise RuntimeError("OLLAMA_URL not set — cannot generate")
+
+    content = _call_ollama(
+        ollama_url, ollama_model, system_prompt, user_prompt,
+        timeout=timeout, num_predict=num_predict, temperature=temperature,
+    )
+    if content:
+        backend = f"Ollama/{ollama_model}"
+        log.info("LLM call succeeded via %s (%d chars)", backend, len(content))
+        return content, backend
+    raise RuntimeError("Ollama returned empty response")
 
 
 def _call_ollama(
