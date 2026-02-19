@@ -14,9 +14,11 @@ import asyncio
 import email
 import email.header
 import email.utils
+import html
 import imaplib
 import json
 import logging
+import re
 from pathlib import Path
 
 from channels.base import Channel
@@ -57,6 +59,21 @@ def _extract_email_addr(header_value: str) -> str:
     return addr or header_value
 
 
+def _strip_html(raw_html: str) -> str:
+    """Strip HTML tags and decode entities to produce readable plain text."""
+    # Replace block-level tags with newlines for readability
+    text = re.sub(r"<br\s*/?>", "\n", raw_html, flags=re.IGNORECASE)
+    text = re.sub(r"</(?:p|div|tr|li|h[1-6])>", "\n", text, flags=re.IGNORECASE)
+    # Remove all remaining tags
+    text = re.sub(r"<[^>]+>", "", text)
+    # Decode HTML entities (&amp; &nbsp; &#8230; etc.)
+    text = html.unescape(text)
+    # Collapse whitespace runs (but keep single newlines)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def _get_body(msg) -> str:
     """Extract plain text body from an email message."""
     if msg.is_multipart():
@@ -67,19 +84,23 @@ def _get_body(msg) -> str:
                 if payload:
                     charset = part.get_content_charset() or "utf-8"
                     return payload.decode(charset, errors="replace")
-        # Fallback: try text/html
+        # Fallback: try text/html (strip tags to plain text)
         for part in msg.walk():
             ct = part.get_content_type()
             if ct == "text/html":
                 payload = part.get_payload(decode=True)
                 if payload:
                     charset = part.get_content_charset() or "utf-8"
-                    return payload.decode(charset, errors="replace")
+                    return _strip_html(payload.decode(charset, errors="replace"))
     else:
         payload = msg.get_payload(decode=True)
         if payload:
             charset = msg.get_content_charset() or "utf-8"
-            return payload.decode(charset, errors="replace")
+            text = payload.decode(charset, errors="replace")
+            # If the single part is HTML, strip it
+            if msg.get_content_type() == "text/html":
+                return _strip_html(text)
+            return text
     return ""
 
 
