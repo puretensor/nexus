@@ -28,7 +28,7 @@ _nexus_root = str(Path(__file__).resolve().parent.parent)
 if _nexus_root not in _sys.path:
     _sys.path.insert(0, _nexus_root)
 
-from observers.base import Observer, ObserverContext, ObserverResult
+from observers.base import ALERT_BOT_TOKEN, Observer, ObserverContext, ObserverResult
 
 log = logging.getLogger("nexus")
 
@@ -803,7 +803,7 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
             briefing = self._generate_briefing(rss_articles, gdelt_articles)
         except Exception as e:
             error_msg = f"Briefing generation failed: {e}"
-            self.send_telegram(f"[intel_briefing] ERROR: {error_msg}")
+            self.send_telegram(f"[intel_briefing] ERROR: {error_msg}", token=ALERT_BOT_TOKEN)
             return ObserverResult(success=False, error=error_msg)
 
         # 3. Generate HTML
@@ -814,7 +814,7 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
             url = self._deploy_briefing(briefing, html)
         except Exception as e:
             error_msg = f"Deployment failed: {e}"
-            self.send_telegram(f"[intel_briefing] ERROR: {error_msg}")
+            self.send_telegram(f"[intel_briefing] ERROR: {error_msg}", token=ALERT_BOT_TOKEN)
             return ObserverResult(success=False, error=error_msg)
 
         # 5. Update index.html
@@ -845,7 +845,7 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
             f"  Engine: {backend_label}\n"
             f"  {total_articles} sources | {elapsed:.0f}s pipeline"
         )
-        self.send_telegram(message)
+        self.send_telegram(message, token=ALERT_BOT_TOKEN)
 
         return ObserverResult(
             success=True,

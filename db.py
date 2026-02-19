@@ -16,7 +16,11 @@ def _now() -> str:
 
 
 def _connect():
-    return sqlite3.connect(DB_PATH)
+    con = sqlite3.connect(DB_PATH, timeout=30)
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA synchronous=NORMAL")
+    con.execute("PRAGMA busy_timeout=5000")
+    return con
 
 
 # ---------------------------------------------------------------------------

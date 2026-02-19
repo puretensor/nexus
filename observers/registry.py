@@ -10,7 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from observers.base import Observer, ObserverContext, ObserverResult
+from observers.base import ALERT_BOT_TOKEN, Observer, ObserverContext, ObserverResult
 
 log = logging.getLogger("nexus")
 
@@ -142,7 +142,7 @@ class ObserverRegistry:
                 log.warning("Observer %s failed: %s", observer.name, result.error)
                 # Send error notification
                 try:
-                    observer.send_telegram(f"[{observer.name}] ERROR: {result.error}")
+                    observer.send_telegram(f"[{observer.name}] ERROR: {result.error}", token=ALERT_BOT_TOKEN)
                 except Exception:
                     pass
 

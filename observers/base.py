@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config import BOT_TOKEN, AUTHORIZED_USER_ID
+from config import ALERT_BOT_TOKEN, BOT_TOKEN, AUTHORIZED_USER_ID
 
 log = logging.getLogger("nexus")
 

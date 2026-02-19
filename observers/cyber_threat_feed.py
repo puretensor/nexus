@@ -26,7 +26,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from observers.base import Observer, ObserverContext, ObserverResult
+from observers.base import ALERT_BOT_TOKEN, Observer, ObserverContext, ObserverResult
 
 log = logging.getLogger("nexus")
 
@@ -1096,12 +1096,12 @@ main {{
             briefing_html, backend_used = self.call_llm_for_briefing(prompt, timeout=300)
         except RuntimeError as e:
             msg = f"LLM generation failed: {e}"
-            self.send_telegram(f"[cyber_threat_feed] ERROR: {msg}")
+            self.send_telegram(f"[cyber_threat_feed] ERROR: {msg}", token=ALERT_BOT_TOKEN)
             return ObserverResult(success=False, error=msg)
 
         if not briefing_html:
             msg = "LLM returned empty response"
-            self.send_telegram(f"[cyber_threat_feed] ERROR: {msg}")
+            self.send_telegram(f"[cyber_threat_feed] ERROR: {msg}", token=ALERT_BOT_TOKEN)
             return ObserverResult(success=False, error=msg)
 
         # Strip markdown code fences if present
@@ -1138,7 +1138,7 @@ main {{
 
         if not deployed:
             msg = "GCP deployment failed"
-            self.send_telegram(f"[cyber_threat_feed] ERROR: {msg}")
+            self.send_telegram(f"[cyber_threat_feed] ERROR: {msg}", token=ALERT_BOT_TOKEN)
             return ObserverResult(success=False, error=msg)
 
         # 6. Save state
@@ -1169,7 +1169,7 @@ main {{
             f"https://cyber.varangian.ai/briefings/\n"
             f"Permalink: https://cyber.puretensor.ai/briefings/{briefing_filename}"
         )
-        self.send_telegram(tg_msg)
+        self.send_telegram(tg_msg, token=ALERT_BOT_TOKEN)
 
         log.info("Cyber Threat Feed complete — published to cyber.puretensor.ai + cyber.varangian.ai")
 
