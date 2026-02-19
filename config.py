@@ -21,8 +21,17 @@ CLAUDE_CWD = os.environ.get("CLAUDE_CWD", "/home/puretensorai")
 TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "1800"))
 WHISPER_URL = os.environ.get("WHISPER_URL", "http://127.0.0.1:9000/transcribe")
 
-# Engine backend selection (ollama, claude_code, codex_cli, gemini_cli)
+# Engine backend selection (ollama, claude_code, anthropic_api, codex_cli, gemini_cli)
 ENGINE_BACKEND = os.environ.get("ENGINE_BACKEND", "ollama")
+
+# Anthropic API (direct)
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
+ANTHROPIC_MAX_TOKENS = int(os.environ.get("ANTHROPIC_MAX_TOKENS", "4096"))
+ANTHROPIC_TOOLS_ENABLED = os.environ.get("ANTHROPIC_TOOLS_ENABLED", "true").lower() == "true"
+ANTHROPIC_TOOL_MAX_ITER = int(os.environ.get("ANTHROPIC_TOOL_MAX_ITER", "25"))
+ANTHROPIC_TOOL_TIMEOUT = int(os.environ.get("ANTHROPIC_TOOL_TIMEOUT", "30"))
+ANTHROPIC_TOTAL_TIMEOUT = int(os.environ.get("ANTHROPIC_TOTAL_TIMEOUT", "300"))
 
 # Ollama — local models (default)
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")

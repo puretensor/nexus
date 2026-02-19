@@ -5,8 +5,14 @@ metadata:
   namespace: nexus
 data:
   # Engine
-  ENGINE_BACKEND: "claude_code"
+  ENGINE_BACKEND: "anthropic_api"
   CLAUDE_MODEL: "sonnet"
+  ANTHROPIC_MODEL: "claude-sonnet-4-6"
+  ANTHROPIC_MAX_TOKENS: "8192"
+  ANTHROPIC_TOOLS_ENABLED: "true"
+  ANTHROPIC_TOOL_MAX_ITER: "25"
+  ANTHROPIC_TOOL_TIMEOUT: "30"
+  ANTHROPIC_TOTAL_TIMEOUT: "300"
   CLAUDE_TIMEOUT: "1800"
   CLAUDE_CWD: "/app"
   CLAUDE_BIN: "/usr/local/bin/claude"
