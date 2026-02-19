@@ -59,7 +59,7 @@ class IntelBriefingObserver(Observer):
     """Generates and publishes intelligence briefings to intel.puretensor.ai."""
 
     name = "intel_briefing"
-    schedule = "0 */4 * * *"  # every 4 hours
+    schedule = "0 */6 * * *"  # every 6 hours
 
     # Maximum articles to fetch per RSS feed
     MAX_PER_FEED = 8

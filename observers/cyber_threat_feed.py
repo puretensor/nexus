@@ -442,6 +442,7 @@ class CyberThreatFeedObserver(Observer):
     # Ollama LLM analysis
     # -------------------------------------------------------------------
 
+    # PureTensor: technical, developer-facing, vulnerability-centric
     SYSTEM_PROMPT = (
         "You are a cybersecurity threat analyst. Produce clear, concise, "
         "technically accurate threat briefings. Output only the requested HTML "
@@ -449,7 +450,19 @@ class CyberThreatFeedObserver(Observer):
         "around the output."
     )
 
-    def call_llm_for_briefing(self, prompt: str, timeout: int = 300) -> tuple[str, str]:
+    # Varangian: risk-focused, executive-facing, threat-actor-centric
+    VARANGIAN_SYSTEM_PROMPT = (
+        "You are a senior security and risk intelligence analyst at Varangian Group. "
+        "You produce executive-level threat briefings focused on operational risk, "
+        "threat actor attribution, nation-state campaigns, and business impact. "
+        "Emphasise who is attacking, why, what sectors are targeted, and what "
+        "organisational leaders need to know. Use British English. "
+        "Output only the requested HTML content, no preamble or commentary. "
+        "Do not use markdown code fences around the output."
+    )
+
+    def call_llm_for_briefing(self, prompt: str, timeout: int = 300,
+                               system_prompt: str | None = None) -> tuple[str, str]:
         """Call LLM via shared module — Gemini-first to avoid burning GPU on
         routine threat summaries.  Falls back to Ollama if Gemini is unavailable.
 
@@ -458,7 +471,7 @@ class CyberThreatFeedObserver(Observer):
         """
         from observers.llm import call_llm
         return call_llm(
-            system_prompt=self.SYSTEM_PROMPT,
+            system_prompt=system_prompt or self.SYSTEM_PROMPT,
             user_prompt=prompt,
             timeout=timeout,
             num_predict=8192,
@@ -1017,11 +1030,18 @@ main {{
             log.info("Deployed to %s", webroot)
         return True
 
-    def deploy_to_gcp(self, latest_page_html: str, briefing_html: str, briefing_filename: str) -> bool:
+    def deploy_to_gcp(self, latest_page_html: str, briefing_html: str,
+                       briefing_filename: str,
+                       varangian_latest_html: str | None = None,
+                       varangian_briefing_html: str | None = None) -> bool:
         """Deploy briefing files to GCP e2-micro — both PureTensor and Varangian sites.
 
         latest_page_html: goes to /briefings/index.html (latest briefing + previous list)
         briefing_html: goes to /briefings/<filename> (individual permalink)
+
+        If varangian_latest_html / varangian_briefing_html are provided, Varangian
+        gets independently generated content (different analytical lens).  Otherwise
+        falls back to CSS-only rebranding of the PureTensor content.
 
         IMPORTANT: Only deploys to /briefings/ subdirectory.
         Never touches the root index.html — that's the landing page managed by gcp-sites repo.
@@ -1036,9 +1056,15 @@ main {{
 
         # Deploy to cyber.varangian.ai (gold/Varangian branding)
         try:
-            varangian_page = self._rebrand_for_varangian(latest_page_html)
-            varangian_briefing = self._rebrand_for_varangian(briefing_html)
-            self._deploy_to_webroot(WEBROOT_VARANGIAN, varangian_page, varangian_briefing, briefing_filename)
+            if varangian_latest_html and varangian_briefing_html:
+                # Independent Varangian content — just rebrand the CSS/template
+                var_page = self._rebrand_for_varangian(varangian_latest_html)
+                var_briefing = self._rebrand_for_varangian(varangian_briefing_html)
+            else:
+                # Fallback: rebrand PureTensor content (legacy behaviour)
+                var_page = self._rebrand_for_varangian(latest_page_html)
+                var_briefing = self._rebrand_for_varangian(briefing_html)
+            self._deploy_to_webroot(WEBROOT_VARANGIAN, var_page, var_briefing, briefing_filename)
         except Exception as e:
             log.error("Varangian deployment failed: %s", e)
             ok = False
@@ -1092,8 +1118,8 @@ main {{
                      len(delta["new_malware"]), len(delta["new_c2s"]),
                      len(delta["new_articles"]))
 
-        # 3. Generate briefing via LLM (Ollama-first, Gemini-fallback)
-        log.info("Generating briefing via LLM...")
+        # 3. Generate PureTensor briefing (tech/cyber focus)
+        log.info("Generating PureTensor briefing via LLM...")
         prompt = self.build_analysis_prompt(intel, timestamp, delta=delta)
         try:
             briefing_html, backend_used = self.call_llm_for_briefing(prompt, timeout=300)
@@ -1107,14 +1133,34 @@ main {{
             self.send_telegram(f"[cyber_threat_feed] ERROR: {msg}", token=ALERT_BOT_TOKEN)
             return ObserverResult(success=False, error=msg)
 
-        # Strip markdown code fences if present
         briefing_html = re.sub(r"^```(?:html)?\s*", "", briefing_html)
         briefing_html = re.sub(r"\s*```$", "", briefing_html)
+        log.info("PureTensor briefing generated via %s: %d chars", backend_used, len(briefing_html))
 
-        log.info("Briefing generated via %s: %d chars", backend_used, len(briefing_html))
+        # 3b. Generate Varangian briefing (security/risk focus, same data)
+        var_briefing_html = None
+        var_backend = None
+        try:
+            log.info("Generating Varangian briefing via LLM...")
+            var_briefing_html, var_backend = self.call_llm_for_briefing(
+                prompt, timeout=300, system_prompt=self.VARANGIAN_SYSTEM_PROMPT,
+            )
+            if var_briefing_html:
+                var_briefing_html = re.sub(r"^```(?:html)?\s*", "", var_briefing_html)
+                var_briefing_html = re.sub(r"\s*```$", "", var_briefing_html)
+                log.info("Varangian briefing generated via %s: %d chars", var_backend, len(var_briefing_html))
+            else:
+                log.warning("Varangian LLM returned empty — will rebrand PureTensor content")
+                var_briefing_html = None
+        except Exception as e:
+            log.warning("Varangian briefing generation failed (%s) — will rebrand PureTensor content", e)
+            var_briefing_html = None
 
-        # 4. Build individual briefing page (permalink in /briefings/)
+        # 4. Build individual briefing pages (permalinks in /briefings/)
         individual_briefing = self.build_full_page(briefing_html, timestamp, intel_stats)
+        var_individual = None
+        if var_briefing_html:
+            var_individual = self.build_full_page(var_briefing_html, timestamp, intel_stats)
 
         # 5. Update archive state (state already loaded for delta computation above)
         archive = state.get("archive", [])
@@ -1128,15 +1174,22 @@ main {{
         state["archive"] = archive
         state["last_run"] = timestamp
 
-        # 5. Build /briefings/index.html — latest briefing + previous list
+        # 5b. Build /briefings/index.html — latest briefing + previous list
         latest_page = self.build_latest_briefing_page(
             briefing_html, timestamp, intel_stats, archive
         )
+        var_latest = None
+        if var_briefing_html:
+            var_latest = self.build_latest_briefing_page(
+                var_briefing_html, timestamp, intel_stats, archive
+            )
 
-        # 6. Deploy to GCP
+        # 6. Deploy to GCP (Varangian gets independent content if available)
         log.info("Deploying to GCP...")
         deployed = self.deploy_to_gcp(
-            latest_page, individual_briefing, briefing_filename
+            latest_page, individual_briefing, briefing_filename,
+            varangian_latest_html=var_latest,
+            varangian_briefing_html=var_individual,
         )
 
         if not deployed:
