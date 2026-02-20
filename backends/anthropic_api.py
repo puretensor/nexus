@@ -239,8 +239,6 @@ class AnthropicAPIBackend:
                 messages=msgs,
                 tools=self._tools,
                 timeout=timeout,
-                # Automatic caching: cache breakpoint moves forward with conversation
-                cache_control=_CACHE_EPHEMERAL,
             )
             if system:
                 kwargs["system"] = system
@@ -298,8 +296,6 @@ class AnthropicAPIBackend:
                 messages=msgs,
                 tools=self._tools,
                 timeout=self._total_timeout,
-                # Automatic caching: cache breakpoint moves forward with conversation
-                cache_control=_CACHE_EPHEMERAL,
             )
             if system:
                 kwargs["system"] = system
