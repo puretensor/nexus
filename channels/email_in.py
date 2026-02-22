@@ -61,8 +61,11 @@ def _extract_email_addr(header_value: str) -> str:
 
 def _strip_html(raw_html: str) -> str:
     """Strip HTML tags and decode entities to produce readable plain text."""
+    # Remove style/script blocks entirely (content + tags)
+    text = re.sub(r"<style[^>]*>.*?</style>", "", raw_html, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.IGNORECASE | re.DOTALL)
     # Replace block-level tags with newlines for readability
-    text = re.sub(r"<br\s*/?>", "\n", raw_html, flags=re.IGNORECASE)
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"</(?:p|div|tr|li|h[1-6])>", "\n", text, flags=re.IGNORECASE)
     # Remove all remaining tags
     text = re.sub(r"<[^>]+>", "", text)
