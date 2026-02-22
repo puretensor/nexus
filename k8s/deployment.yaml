@@ -62,19 +62,29 @@ spec:
               mountPath: /ssh-writable
 
         # Set up Claude CLI home with credentials and project memory
+        # Idempotent: only seeds files that don't already exist (preserves written state)
         - name: setup-claude
           image: busybox:1.36
           command:
             - sh
             - -c
             - |
-              # Credentials and settings
-              cp /claude-creds/.credentials.json /claude-home/ 2>/dev/null || true
+              # Credentials — only if not already present (token may have refreshed)
+              if [ ! -f /claude-home/.credentials.json ]; then
+                cp /claude-creds/.credentials.json /claude-home/ 2>/dev/null || true
+              fi
+              # Settings always reset to default (non-persistent)
               echo '{}' > /claude-home/remote-settings.json
               echo '{}' > /claude-home/settings.json
               # Project memory directory (Claude CLI looks here based on CWD=/app)
               mkdir -p /claude-home/projects/-app/memory
-              cp /memory-src/* /claude-home/projects/-app/memory/
+              # Only copy memory files that don't already exist (preserve HAL's written memories)
+              for f in /memory-src/*; do
+                fname=$(basename "$f")
+                if [ ! -f "/claude-home/projects/-app/memory/$fname" ]; then
+                  cp "$f" "/claude-home/projects/-app/memory/$fname"
+                fi
+              done
               # Fix ownership
               chown -R 1000:1000 /claude-home
               chmod 700 /claude-home
@@ -98,9 +108,12 @@ spec:
             - -c
             - |
               chown -R 1000:1000 /data
+              chown -R 1000:1000 /claude-home
           volumeMounts:
             - name: nexus-data
               mountPath: /data
+            - name: claude-home
+              mountPath: /claude-home
 
       containers:
         - name: nexus
@@ -176,7 +189,8 @@ spec:
             secretName: claude-credentials
             defaultMode: 0600
         - name: claude-home
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: claude-home
         - name: claude-context
           configMap:
             name: claude-context

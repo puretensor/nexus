@@ -3,15 +3,17 @@
 Implements prompt caching to minimise cost:
   - Static system prompt cached with cache_control breakpoint
   - Tool definitions cached (breakpoint on last tool)
-  - Top-level cache_control for automatic conversation caching
+  - Conversation history persisted in DB (session memory across turns)
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 
 from anthropic import Anthropic, AsyncAnthropic
+from db import get_conversation_history, save_conversation_history
 
 from backends.tools import TOOL_SCHEMAS, ToolCall, run_tool_loop_sync, run_tool_loop_async
 
@@ -228,9 +230,12 @@ class AnthropicAPIBackend:
         if err:
             return {"result": err, "session_id": None}
 
+        session_id = session_id or str(uuid.uuid4())
         model_id = self._resolve_model(model)
         system = _build_system_blocks(system_prompt, memory_context)
-        messages = [{"role": "user", "content": prompt}]
+
+        history = get_conversation_history(session_id)
+        messages = history + [{"role": "user", "content": prompt}]
 
         def send_request(msgs):
             kwargs = dict(
@@ -245,7 +250,7 @@ class AnthropicAPIBackend:
             return client.messages.create(**kwargs)
 
         if self._tools_enabled:
-            return run_tool_loop_sync(
+            result = run_tool_loop_sync(
                 messages,
                 send_request,
                 self._parse_response,
@@ -255,15 +260,26 @@ class AnthropicAPIBackend:
                 total_timeout=min(timeout, self._total_timeout),
                 cwd=self._cwd,
             )
+            result_text = result.get("result", "")
+            if result_text:
+                save_conversation_history(session_id, messages + [
+                    {"role": "assistant", "content": result_text}
+                ])
+            result["session_id"] = session_id
+            return result
 
         # No tools — single request
         try:
             resp = send_request(messages)
         except Exception as e:
-            return {"result": f"Anthropic error: {e}", "session_id": None}
+            return {"result": f"Anthropic error: {e}", "session_id": session_id}
 
         text, _tool_calls, _assistant_msg = self._parse_response(resp)
-        return {"result": text or "(empty response)", "session_id": None}
+        if text:
+            save_conversation_history(session_id, messages + [
+                {"role": "assistant", "content": text}
+            ])
+        return {"result": text or "(empty response)", "session_id": session_id}
 
     # ------------------------------------------------------------------
     # Async call (non-streaming response, but tool loop provides progress)
@@ -285,9 +301,12 @@ class AnthropicAPIBackend:
         if err:
             return {"result": err, "session_id": None, "written_files": []}
 
+        session_id = session_id or str(uuid.uuid4())
         model_id = self._resolve_model(model)
         system = _build_system_blocks(system_prompt, memory_context, extra_system_prompt)
-        messages = [{"role": "user", "content": message}]
+
+        history = get_conversation_history(session_id)
+        messages = history + [{"role": "user", "content": message}]
 
         async def send_request(msgs):
             kwargs = dict(
@@ -302,7 +321,7 @@ class AnthropicAPIBackend:
             return await aclient.messages.create(**kwargs)
 
         if self._tools_enabled:
-            return await run_tool_loop_async(
+            result = await run_tool_loop_async(
                 messages,
                 send_request,
                 self._parse_response,
@@ -314,12 +333,23 @@ class AnthropicAPIBackend:
                 streaming_editor=streaming_editor,
                 on_progress=on_progress,
             )
+            result_text = result.get("result", "")
+            if result_text:
+                save_conversation_history(session_id, messages + [
+                    {"role": "assistant", "content": result_text}
+                ])
+            result["session_id"] = session_id
+            return result
 
         # No tools — single request
         try:
             resp = await send_request(messages)
         except Exception as e:
-            return {"result": f"Anthropic error: {e}", "session_id": None, "written_files": []}
+            return {"result": f"Anthropic error: {e}", "session_id": session_id, "written_files": []}
 
         text, _tool_calls, _assistant_msg = self._parse_response(resp)
-        return {"result": text or "(empty response)", "session_id": None, "written_files": []}
+        if text:
+            save_conversation_history(session_id, messages + [
+                {"role": "assistant", "content": text}
+            ])
+        return {"result": text or "(empty response)", "session_id": session_id, "written_files": []}

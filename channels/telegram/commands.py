@@ -46,6 +46,7 @@ from db import (
     create_scheduled_task,
     list_scheduled_tasks,
     delete_scheduled_task,
+    delete_conversation_history,
 )
 from engine import call_streaming, split_message, get_model_display
 from channels.telegram.streaming import StreamingEditor
@@ -115,6 +116,9 @@ async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
     model = session["model"] if session else "sonnet"
     name = context.args[0] if context.args else "default"
     current_name = session["name"] if session else None
+    # Clear conversation history for the current session before resetting
+    if session and session.get("session_id"):
+        delete_conversation_history(session["session_id"])
     if current_name and current_name != name:
         # Different name: archive current session, then create/switch to new name
         archive_session(chat_id)

@@ -168,6 +168,18 @@ def init_db():
         )
         log.info("Created email_seen table")
 
+    # Conversation history (for stateless backends like anthropic_api)
+    hist_cols = [row[1] for row in con.execute("PRAGMA table_info(conversation_history)").fetchall()]
+    if not hist_cols:
+        con.execute(
+            """CREATE TABLE conversation_history (
+                session_id TEXT PRIMARY KEY,
+                messages_json TEXT NOT NULL,
+                updated_at TEXT
+            )"""
+        )
+        log.info("Created conversation_history table")
+
     con.commit()
     con.close()
 
@@ -915,3 +927,59 @@ def is_email_seen(message_id: str) -> bool:
     ).fetchone()
     con.close()
     return row is not None
+
+
+# ---------------------------------------------------------------------------
+# Conversation history (for stateless backends like anthropic_api)
+# ---------------------------------------------------------------------------
+
+_MAX_HISTORY_MESSAGES = 60  # 30 exchanges — stays well within 200k context
+
+
+def get_conversation_history(session_id: str) -> list[dict]:
+    """Return stored message list for a session (empty list if none)."""
+    import json
+    con = _connect()
+    row = con.execute(
+        "SELECT messages_json FROM conversation_history WHERE session_id = ?",
+        (session_id,),
+    ).fetchone()
+    con.close()
+    if not row:
+        return []
+    try:
+        return json.loads(row[0])
+    except Exception:
+        return []
+
+
+def save_conversation_history(session_id: str, messages: list[dict]) -> None:
+    """Persist conversation messages for a session, trimming to max length."""
+    import json
+    if len(messages) > _MAX_HISTORY_MESSAGES:
+        messages = messages[-_MAX_HISTORY_MESSAGES:]
+    now = _now()
+    con = _connect()
+    con.execute(
+        """INSERT INTO conversation_history (session_id, messages_json, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(session_id) DO UPDATE SET
+               messages_json = excluded.messages_json,
+               updated_at = excluded.updated_at""",
+        (session_id, json.dumps(messages), now),
+    )
+    con.commit()
+    con.close()
+
+
+def delete_conversation_history(session_id: str) -> None:
+    """Delete conversation history for a session (called on /new)."""
+    if not session_id:
+        return
+    con = _connect()
+    con.execute(
+        "DELETE FROM conversation_history WHERE session_id = ?",
+        (session_id,),
+    )
+    con.commit()
+    con.close()
