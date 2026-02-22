@@ -212,11 +212,25 @@ def _call_gemini(
     timeout: int = 300,
     temperature: float = 0.4,
 ) -> str:
-    """Call Gemini REST API (generativelanguage.googleapis.com). Returns content."""
+    """Call Gemini REST API (generativelanguage.googleapis.com). Returns content.
+
+    For Gemini 2.5 thinking models, configures a separate thinking budget so
+    that internal reasoning tokens don't consume the response output limit.
+    """
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}"
         f":generateContent?key={api_key}"
     )
+
+    gen_config: dict = {
+        "temperature": temperature,
+        "maxOutputTokens": 32768,
+    }
+
+    # Gemini 2.5 models use thinking — set a separate budget so thinking
+    # tokens don't eat into the actual response output.
+    if "2.5" in model:
+        gen_config["thinkingConfig"] = {"thinkingBudget": 8192}
 
     payload = {
         "system_instruction": {
@@ -228,10 +242,7 @@ def _call_gemini(
                 "parts": [{"text": user_prompt}],
             },
         ],
-        "generationConfig": {
-            "temperature": temperature,
-            "maxOutputTokens": 8192,
-        },
+        "generationConfig": gen_config,
     }
 
     data = json.dumps(payload).encode()
@@ -247,7 +258,24 @@ def _call_gemini(
     candidates = result.get("candidates", [])
     if not candidates:
         return ""
+
+    # Check finish reason — warn if output was truncated
+    finish_reason = candidates[0].get("finishReason", "")
+    if finish_reason == "MAX_TOKENS":
+        log.warning("Gemini response truncated (finishReason=MAX_TOKENS)")
+
+    # Gemini 2.5 thinking models return multiple parts: thinking parts
+    # (thought=True) and response parts. Concatenate only non-thinking parts.
     parts = candidates[0].get("content", {}).get("parts", [])
     if not parts:
         return ""
-    return parts[0].get("text", "").strip()
+
+    response_texts = []
+    for part in parts:
+        if part.get("thought"):
+            continue  # skip thinking tokens
+        text = part.get("text", "")
+        if text:
+            response_texts.append(text)
+
+    return "\n".join(response_texts).strip()

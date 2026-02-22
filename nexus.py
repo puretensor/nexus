@@ -41,7 +41,10 @@ def _build_observer_registry():
         # alertmanager_monitor disabled — alerts suppressed from HAL interface
         # ("observers.alertmanager_monitor", "AlertmanagerMonitorObserver"),
         ("observers.cyber_threat_feed", "CyberThreatFeedObserver"),
-        ("observers.intel_briefing", "IntelBriefingObserver"),
+        # intel_briefing disabled — replaced by intel_deep_analysis which
+        # generates both full analysis articles and summary briefing cards
+        # ("observers.intel_briefing", "IntelBriefingObserver"),
+        ("observers.intel_deep_analysis", "IntelDeepAnalysisObserver"),
     ]
 
     import importlib

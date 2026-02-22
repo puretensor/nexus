@@ -716,16 +716,22 @@ body {{
 nav {{
     position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
     padding: 1rem 2rem;
-    display: flex; align-items: center; justify-content: space-between;
     background: rgba(10, 12, 16, 0.9);
     backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
 }}
+.nav-inner {{
+    max-width: 1140px;
+    margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between; gap: 3rem;
+}}
 .nav-brand {{
+    display: flex; align-items: center; gap: 0.6rem;
     font-weight: 600; font-size: 0.95rem;
     color: var(--cyan); letter-spacing: 0.15em;
     text-transform: uppercase; text-decoration: none;
 }}
+.nav-brand svg {{ width: 24px; height: 24px; flex-shrink: 0; opacity: 0.35; }}
 .nav-brand span {{ color: var(--text-secondary); font-weight: 300; }}
 .nav-links {{ display: flex; gap: 1.5rem; }}
 .nav-links a {{
@@ -852,10 +858,12 @@ main {{
 <body>
 
 <nav>
-    <a class="nav-brand" href="/">PURETENSOR <span>// CYBER</span></a>
+    <div class="nav-inner">
+    <a class="nav-brand" href="/"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="ag" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#00D4AA"/><stop offset="100%" style="stop-color:#0080FF"/></linearGradient><linearGradient id="df" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#1a252f"/><stop offset="100%" style="stop-color:#2C3E50"/></linearGradient><linearGradient id="mf" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#34495E"/><stop offset="100%" style="stop-color:#4A6278"/></linearGradient></defs><g transform="translate(10,5)"><polygon points="40,0 80,20 80,65 40,85 0,65 0,20" fill="url(#df)"/><polygon points="40,85 80,65 80,20 40,40" fill="url(#mf)"/><polygon points="40,85 0,65 0,20 40,40" fill="#2C3E50"/><polygon points="40,0 80,20 40,40 0,20" fill="#3D566E"/><polygon points="40,0 58,10 40,20 22,10" fill="url(#ag)"/></g></svg>PURETENSOR <span>// CYBER</span></a>
     <div class="nav-links">
         <a href="/">Main Site</a>
         <a href="/briefings/">Archive</a>
+    </div>
     </div>
 </nav>
 
@@ -987,6 +995,17 @@ main {{
         ]
         for old, new in replacements:
             html = html.replace(old, new)
+
+        # Strip PureTensor hex logo SVG from nav-brand (Varangian has no logo)
+        html = re.sub(
+            r'(<a[^>]*class="nav-brand"[^>]*>)\s*<svg[^>]*>.*?</svg>\s*',
+            r'\1',
+            html,
+            flags=re.DOTALL,
+        )
+        # Remove .nav-brand svg CSS rule
+        html = re.sub(r'\.nav-brand\s+svg\s*\{[^}]*\}\s*', '', html)
+
         return html
 
     # -------------------------------------------------------------------
@@ -1070,6 +1089,68 @@ main {{
             ok = False
 
         return ok
+
+    # -------------------------------------------------------------------
+    # Landing page feed
+    # -------------------------------------------------------------------
+
+    def _update_landing_feed(self, intel_stats: dict, briefing_filename: str, timestamp: str):
+        """Update varangian.ai landing-page activity ticker feed (cyber section)."""
+        feed_path = "/var/www/varangian.ai/html/api/feed.json"
+        try:
+            r = subprocess.run(
+                ["ssh", "-o", "ConnectTimeout=10", GCP_HOST, f"cat {feed_path}"],
+                capture_output=True, text=True, timeout=15,
+            )
+            feed = json.loads(r.stdout) if r.returncode == 0 and r.stdout.strip() else {
+                "updated": "", "intel": [], "cyber": [],
+            }
+        except Exception:
+            feed = {"updated": "", "intel": [], "cyber": []}
+
+        parts = []
+        if intel_stats["critical_cves"]:
+            parts.append(f"{intel_stats['critical_cves']} critical CVEs")
+        if intel_stats["high_cves"]:
+            parts.append(f"{intel_stats['high_cves']} high CVEs")
+        if intel_stats["malware_count"]:
+            parts.append(f"{intel_stats['malware_count']} malware samples")
+        if intel_stats["c2_count"]:
+            parts.append(f"{intel_stats['c2_count']} C2 servers")
+        if intel_stats["ioc_count"]:
+            parts.append(f"{intel_stats['ioc_count']} IOCs")
+        title = ", ".join(parts) if parts else "Threat scan complete — no significant activity"
+
+        now = datetime.now(timezone.utc).isoformat()
+        level = "critical" if intel_stats["critical_cves"] else (
+            "elevated" if intel_stats["high_cves"] or intel_stats["malware_count"] else "monitoring"
+        )
+        feed["cyber"].insert(0, {
+            "title": title,
+            "level": level,
+            "url": f"https://cyber.varangian.ai/briefings/{briefing_filename}",
+            "time": now,
+        })
+        feed["cyber"] = feed["cyber"][:12]
+        feed["updated"] = now
+
+        feed_json = json.dumps(feed, indent=2)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write(feed_json)
+            tmp = f.name
+        try:
+            subprocess.run(["scp", "-q", tmp, f"{GCP_HOST}:/tmp/_landing_feed.json"],
+                           check=True, timeout=10)
+            subprocess.run(["ssh", "-o", "ConnectTimeout=10", GCP_HOST,
+                            f"sudo cp /tmp/_landing_feed.json {feed_path} && "
+                            f"sudo chown www-data:www-data {feed_path} && "
+                            f"rm /tmp/_landing_feed.json"],
+                           check=True, timeout=10)
+            log.info("cyber_threat_feed: landing feed updated (%d cyber items)", len(feed["cyber"]))
+        except Exception as e:
+            log.warning("cyber_threat_feed: landing feed update failed: %s", e)
+        finally:
+            os.unlink(tmp)
 
     # -------------------------------------------------------------------
     # Observer entry point
@@ -1199,6 +1280,12 @@ main {{
 
         # 6. Save state
         self._save_state(state)
+
+        # 6b. Update varangian.ai landing page feed
+        try:
+            self._update_landing_feed(intel_stats, briefing_filename, timestamp)
+        except Exception as e:
+            log.warning("cyber_threat_feed: landing feed update failed: %s", e)
 
         # 7. Telegram notification
         summary_parts = []

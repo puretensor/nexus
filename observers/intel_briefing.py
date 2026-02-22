@@ -41,8 +41,6 @@ RSS_CONF = Path(os.environ.get(
 
 # GCP deployment
 GCP_SSH_HOST = "puretensorai@GCP_TAILSCALE_IP"
-WEBROOT = "/var/www/intel.puretensor.ai"
-BRIEFINGS_DIR = f"{WEBROOT}/briefings"
 
 # Ollama config
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
@@ -51,8 +49,41 @@ OLLAMA_MODEL = os.environ.get("INTEL_OLLAMA_MODEL", "qwen3-235b-a22b-q4km")
 # GDELT API
 GDELT_DOC_API = "https://api.gdeltproject.org/api/v2/doc/doc"
 
-# Google Analytics
-GA_ID = "G-Q5RPQQ747Z"
+# ── Brand Configurations ──────────────────────────────────────────────
+BRANDS = {
+    "puretensor": {
+        "webroot": "/var/www/intel.puretensor.ai",
+        "ga_id": "G-Q5RPQQ747Z",
+        "site_url": "https://intel.puretensor.ai",
+        "nav_brand": "PureTensor // Intel",
+        "nav_brand_href": "/",
+        "accent_css": "--cyan: #00E5FF; --cyan-bright: #7DE3FF; --cyan-dim: #0088A3; --cyan-border: rgba(0, 229, 255, 0.2); --cyan-glow: rgba(0, 229, 255, 0.06);",
+        "accent_var": "cyan",
+        "nav_logo_svg": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="ag" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#00D4AA"/><stop offset="100%" style="stop-color:#0080FF"/></linearGradient><linearGradient id="df" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#1a252f"/><stop offset="100%" style="stop-color:#2C3E50"/></linearGradient><linearGradient id="mf" x1="0%" y1="100%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#34495E"/><stop offset="100%" style="stop-color:#4A6278"/></linearGradient></defs><g transform="translate(10,5)"><polygon points="40,0 80,20 80,65 40,85 0,65 0,20" fill="url(#df)"/><polygon points="40,85 80,65 80,20 40,40" fill="url(#mf)"/><polygon points="40,85 0,65 0,20 40,40" fill="#2C3E50"/><polygon points="40,0 80,20 40,40 0,20" fill="#3D566E"/><polygon points="40,0 58,10 40,20 22,10" fill="url(#ag)"/></g></svg>',
+        "footer_parent_text": "A PureTensor Inc company",
+        "footer_parent_href": "https://www.puretensor.ai",
+        "footer_entity": "PureTensor Inc &middot; United States",
+        "disclaimer_href": "/disclaimer.html",
+        "privacy_href": "https://www.puretensor.ai/privacy.html",
+        "terms_href": "https://www.puretensor.ai/terms.html",
+    },
+    "varangian": {
+        "webroot": "/var/www/intel.varangian.ai",
+        "ga_id": "G-6VCCF8WSXL",
+        "site_url": "https://intel.varangian.ai",
+        "nav_brand": "Varangian // Intel",
+        "nav_brand_href": "/",
+        "accent_css": "--cyan: #c9b97a; --cyan-bright: #ddd0a0; --cyan-dim: #8b7f52; --cyan-border: rgba(201, 185, 122, 0.2); --cyan-glow: rgba(201, 185, 122, 0.06);",
+        "accent_var": "cyan",  # reuse same CSS var name, different values
+        "nav_logo_svg": "",  # Varangian has no logo yet
+        "footer_parent_text": "A Varangian Group company",
+        "footer_parent_href": "https://varangian.ai",
+        "footer_entity": "Varangian Group Ltd &middot; United Kingdom",
+        "disclaimer_href": "/disclaimer.html",
+        "privacy_href": "/privacy-policy.html",
+        "terms_href": "/terms-of-service.html",
+    },
+}
 
 
 class IntelBriefingObserver(Observer):
@@ -239,17 +270,41 @@ class IntelBriefingObserver(Observer):
 
     # ── Ollama LLM Call ──────────────────────────────────────────────────
 
-    SYSTEM_PROMPT = (
-        "You are a senior intelligence analyst at PureTensor Intel. "
-        "You produce concise, evidence-based strategic intelligence briefings. "
-        "Your tone is analytical, dispassionate, and precise. "
-        "You cite sources by name. You avoid speculation beyond what the evidence supports. "
-        "You use British English spelling conventions. "
-        "Do NOT use markdown formatting. Output clean plain text with section headers in UPPERCASE. "
-        "Do NOT include any <think> tags or thinking process in your output."
-    )
+    SYSTEM_PROMPTS = {
+        "puretensor": (
+            "You are a senior intelligence analyst at PureTensor Intel. "
+            "You produce concise, evidence-based strategic intelligence briefings. "
+            "Your tone is analytical, dispassionate, and precise. "
+            "You cite sources by name. You avoid speculation beyond what the evidence supports. "
+            "You use British English spelling conventions. "
+            "Do NOT use markdown formatting. Output clean plain text with section headers in UPPERCASE. "
+            "Do NOT include any <think> tags or thinking process in your output."
+        ),
+        "varangian": (
+            "You are a senior intelligence analyst at Varangian Intel, a British strategic "
+            "intelligence firm based in London, writing for a UK readership — defence officials, "
+            "City of London risk desks, and Whitehall policy staff. "
+            "Your analytical frame is British: lead with what matters to the UK specifically. "
+            "When covering the same events as any other outlet, ask 'so what does this mean for "
+            "Britain?' — UK defence posture and MOD procurement, Five Eyes intelligence equities, "
+            "City of London and FTSE exposure, sterling and gilt implications, the special "
+            "relationship, AUKUS, CPTPP, and Britain's post-Brexit strategic positioning. "
+            "You are NATO-aligned and pro-Western, but your lens is distinctly British, not "
+            "generically transatlantic. Frame US policy shifts as 'what Washington's move means "
+            "for London', not the other way round. European developments matter through the prism "
+            "of UK-EU relations, Channel security, and shared NATO obligations. "
+            "Your tone is analytical, measured, and precise — in the tradition of Whitehall "
+            "intelligence assessments. Understated, never breathless. "
+            "You cite sources by name. You avoid speculation beyond what the evidence supports. "
+            "You use British English spelling conventions throughout. "
+            "Do NOT use markdown formatting. Output clean plain text with section headers in UPPERCASE. "
+            "Do NOT include any <think> tags or thinking process in your output."
+        ),
+    }
+    # Legacy alias
+    SYSTEM_PROMPT = SYSTEM_PROMPTS["puretensor"]
 
-    def _call_llm(self, prompt: str, timeout: int = 360) -> tuple[str, str]:
+    def _call_llm(self, prompt: str, timeout: int = 360, brand: str = "puretensor") -> tuple[str, str]:
         """Call LLM via shared module — Gemini-first to free up GPU for
         interactive work.  Uses gemini-2.5-flash (not lite) for better
         analytical writing quality.  Falls back to Ollama if Gemini fails.
@@ -258,8 +313,9 @@ class IntelBriefingObserver(Observer):
             (content, backend_name) — the generated text and which backend was used.
         """
         from observers.llm import call_llm
+        system_prompt = self.SYSTEM_PROMPTS.get(brand, self.SYSTEM_PROMPTS["puretensor"])
         return call_llm(
-            system_prompt=self.SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_prompt=prompt,
             timeout=timeout,
             num_predict=6144,
@@ -286,8 +342,8 @@ class IntelBriefingObserver(Observer):
 
     # ── Briefing Generation ──────────────────────────────────────────────
 
-    def _generate_briefing(self, rss_articles: list[dict], gdelt_articles: list[dict]) -> dict:
-        """Generate a briefing from collected articles using Ollama."""
+    def _generate_briefing(self, rss_articles: list[dict], gdelt_articles: list[dict], brand: str = "puretensor") -> dict:
+        """Generate a briefing from collected articles using LLM."""
         # Deduplicate
         all_articles = self._deduplicate_articles(rss_articles + gdelt_articles)
 
@@ -312,7 +368,7 @@ class IntelBriefingObserver(Observer):
             article_text += "\n"
 
         now = datetime.now(timezone.utc)
-        date_str = now.strftime("%d %B %Y")
+        date_str = now.strftime("%d %b %Y")
         time_str = now.strftime("%H:%M UTC")
 
         prompt = f"""Analyse the following {len(all_articles)} news articles and intelligence signals collected over the past 24 hours. Produce a strategic intelligence briefing.
@@ -345,8 +401,8 @@ KEY ASSESSMENTS
 
 Remember: analytical, dispassionate, evidence-based. British English. No markdown. No speculation beyond evidence."""
 
-        log.info("intel_briefing: sending %d articles to LLM for analysis", len(all_articles))
-        raw, self._last_backend = self._call_llm(prompt, timeout=360)
+        log.info("intel_briefing: sending %d articles to LLM for analysis (brand=%s)", len(all_articles), brand)
+        raw, self._last_backend = self._call_llm(prompt, timeout=360, brand=brand)
         log.info("intel_briefing: briefing generated via %s (%d chars)", self._last_backend, len(raw))
 
         # Parse the response
@@ -485,8 +541,9 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
         text = re.sub(r"__(.+?)__", r"<strong>\1</strong>", text)
         return text
 
-    def _generate_briefing_html(self, briefing: dict) -> str:
+    def _generate_briefing_html(self, briefing: dict, brand: str = "puretensor") -> str:
         """Generate the full HTML page for a briefing."""
+        bc = BRANDS[brand]
         body_html = self._body_to_html(briefing["body"])
         title_escaped = html_escape(briefing["title"])
         subtitle_escaped = html_escape(briefing["subtitle"])
@@ -496,39 +553,46 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
         article_count = briefing["article_count"]
         source_count = briefing["source_count"]
 
+        # Favicon colour: extract hex from accent CSS (first colour value)
+        favicon_hex = "%23c9b97a" if brand == "varangian" else "%2300E5FF"
+        pipeline_name = "Varangian Intel" if brand == "varangian" else "PureTensor Intel"
+        nav_svg_css = ".nav-brand svg {{ width: 26px; height: 26px; flex-shrink: 0; opacity: 0.35; }}" if bc['nav_logo_svg'] else ""
+
         return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <!-- Google Analytics 4 -->
-<script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
+<script async src="https://www.googletagmanager.com/gtag/js?id={bc['ga_id']}"></script>
 <script>
   window.dataLayer = window.dataLayer || [];
   function gtag(){{dataLayer.push(arguments);}}
   gtag("js", new Date());
-  gtag("config", "{GA_ID}");
+  gtag("config", "{bc['ga_id']}");
 </script>
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{title_escaped} | PureTensor // Intel</title>
+    <title>{title_escaped} | {html_escape(bc['nav_brand'])}</title>
     <meta name="description" content="{subtitle_escaped}">
     <meta name="theme-color" content="#0A0C10">
     <meta property="og:title" content="{title_escaped}">
     <meta property="og:description" content="{subtitle_escaped}">
     <meta property="og:type" content="article">
-    <meta property="og:url" content="https://intel.puretensor.ai/briefings/{briefing['slug']}.html">
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,2 28,28 16,22 4,28' fill='%2300E5FF'/></svg>">
+    <meta property="og:url" content="{bc['site_url']}/briefings/{briefing['slug']}.html">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,2 28,28 16,22 4,28' fill='{favicon_hex}'/></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
     <style>
-        :root {{ --bg-primary: #0A0C10; --bg-surface: #0F1218; --bg-elevated: #161B24; --cyan: #00E5FF; --cyan-bright: #7DE3FF; --cyan-dim: #0088A3; --cyan-border: rgba(0, 229, 255, 0.2); --cyan-glow: rgba(0, 229, 255, 0.06); --text-primary: #E6EAF0; --text-secondary: #8B95A5; --text-muted: #4A5568; --border: rgba(255, 255, 255, 0.06); --font-serif: 'Cormorant Garamond', Georgia, 'Times New Roman', serif; --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace; }}
+        :root {{ --bg-primary: #0A0C10; --bg-surface: #0F1218; --bg-elevated: #161B24; {bc['accent_css']} --text-primary: #E6EAF0; --text-secondary: #8B95A5; --text-muted: #4A5568; --border: rgba(255, 255, 255, 0.06); --font-serif: 'Cormorant Garamond', Georgia, 'Times New Roman', serif; --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace; }}
         *, *::before, *::after {{ margin: 0; padding: 0; box-sizing: border-box; }}
         html {{ scroll-behavior: smooth; font-size: 16px; }}
         body {{ font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-primary); line-height: 1.65; font-weight: 300; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; overflow-x: hidden; }}
         body::before {{ content: ''; position: fixed; inset: 0; opacity: 0.025; pointer-events: none; z-index: 9999; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); background-size: 256px 256px; }}
-        nav {{ position: fixed; top: 0; left: 0; right: 0; z-index: 1000; padding: 1.25rem 2rem; display: flex; align-items: center; justify-content: space-between; background: rgba(10, 12, 16, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); }}
-        .nav-brand {{ font-family: var(--font-serif); font-weight: 600; font-size: 1.15rem; color: var(--cyan); letter-spacing: 0.15em; text-transform: uppercase; text-decoration: none; }}
+        nav {{ position: fixed; top: 0; left: 0; right: 0; z-index: 1000; padding: 1.25rem 2rem; background: rgba(10, 12, 16, 0.85); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); }}
+        .nav-inner {{ max-width: 1140px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 3rem; }}
+        .nav-brand {{ font-family: var(--font-serif); font-weight: 600; font-size: 1.15rem; color: var(--cyan); letter-spacing: 0.15em; text-transform: uppercase; text-decoration: none; display: flex; align-items: center; gap: 0.6rem; }}
+        {nav_svg_css}
         .nav-back {{ font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-secondary); text-decoration: none; letter-spacing: 0.1em; text-transform: uppercase; transition: color 0.2s ease; }}
         .nav-back:hover {{ color: var(--cyan); }}
         .container {{ max-width: 760px; margin: 0 auto; padding: 0 2rem; }}
@@ -575,8 +639,10 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
 <body>
 
 <nav>
-    <a href="/" class="nav-brand">PureTensor // Intel</a>
-    <a href="/" class="nav-back">&larr; All Analysis</a>
+    <div class="nav-inner">
+    <a href="{bc['nav_brand_href']}" class="nav-brand">{bc['nav_logo_svg']}{html_escape(bc['nav_brand'])}</a>
+    <a href="{bc['nav_brand_href']}" class="nav-back">&larr; All Analysis</a>
+    </div>
 </nav>
 
 <article>
@@ -611,13 +677,13 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
 
             <div class="article-disclaimer" style="background: rgba(255, 180, 0, 0.06); border-left: 2px solid rgba(255, 180, 0, 0.5); padding: 1rem 1.5rem; margin: 0 0 2rem 0; border-radius: 0 6px 6px 0; font-family: var(--font-sans); font-size: 0.82rem; line-height: 1.6; color: var(--text-secondary);">
                 <span style="font-family: var(--font-mono); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255, 180, 0, 0.7); display: block; margin-bottom: 0.5rem;">Disclaimer</span>
-                This analysis is provided for informational and educational purposes only and does not constitute investment, financial, legal, or professional advice. Content is AI-assisted and human-reviewed. See our full <a href="/disclaimer.html" style="color: var(--cyan-dim); text-decoration: underline; text-decoration-color: rgba(0, 229, 255, 0.3);">Disclaimer</a> for important limitations.
+                This analysis is provided for informational and educational purposes only and does not constitute investment, financial, legal, or professional advice. Content is AI-assisted and human-reviewed. See our full <a href="{bc['disclaimer_href']}" style="color: var(--cyan-dim); text-decoration: underline; text-decoration-color: rgba(0, 229, 255, 0.3);">Disclaimer</a> for important limitations.
             </div>
 
 {body_html}
 
             <div class="automated-notice">
-                <strong>Automated Intelligence Briefing</strong> &mdash; This briefing was generated by the PureTensor Intel pipeline: open-source data fusion (GDELT + {source_count} RSS feeds), LLM inference ({html_escape(briefing.get('backend', 'Ollama/qwen3-235b-a22b-q4km'))}), structured analytical framework. {article_count} sources processed at {time_escaped} on {date_escaped}. All automated briefings are subject to editorial review.
+                <strong>Automated Intelligence Briefing</strong> &mdash; This briefing was generated by the {html_escape(pipeline_name)} pipeline: open-source data fusion (GDELT + {source_count} RSS feeds), LLM inference ({html_escape(briefing.get('backend', 'Ollama/qwen3-235b-a22b-q4km'))}), structured analytical framework. {article_count} sources processed at {time_escaped} on {date_escaped}. All automated briefings are subject to editorial review.
             </div>
 
         </div>
@@ -629,15 +695,15 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
 <footer>
     <div class="container">
         <div class="footer-parent">
-            <a href="https://www.puretensor.ai">A PureTensor Inc company</a>
+            <a href="{bc['footer_parent_href']}">{bc['footer_parent_text']}</a>
         </div>
         <div class="footer-links">
-            <a href="/disclaimer.html">Disclaimer</a>
-            <a href="https://www.puretensor.ai/privacy.html">Privacy Policy</a>
-            <a href="https://www.puretensor.ai/terms.html">Terms of Service</a>
+            <a href="{bc['disclaimer_href']}">Disclaimer</a>
+            <a href="{bc['privacy_href']}">Privacy Policy</a>
+            <a href="{bc['terms_href']}">Terms of Service</a>
         </div>
         <div class="footer-inner">
-            <span class="footer-entity">PureTensor Inc &middot; United States</span>
+            <span class="footer-entity">{bc['footer_entity']}</span>
             <span class="footer-mark">&copy; 2026</span>
         </div>
     </div>
@@ -666,15 +732,18 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
                 <span class="analysis-card-link">Read briefing &rarr;</span>
             </a>"""
 
-    def _update_index(self, briefing: dict) -> None:
+    def _update_index(self, briefing: dict, brand: str = "puretensor") -> None:
         """Download index.html, inject new briefing card, re-upload."""
+        bc = BRANDS[brand]
+        webroot = bc["webroot"]
+
         # Download current index.html
         result = subprocess.run(
-            ["ssh", GCP_SSH_HOST, f"cat {WEBROOT}/index.html"],
+            ["ssh", GCP_SSH_HOST, f"cat {webroot}/index.html"],
             capture_output=True, text=True, timeout=15,
         )
         if result.returncode != 0:
-            log.error("intel_briefing: failed to download index.html: %s", result.stderr)
+            log.error("intel_briefing: failed to download index.html (%s): %s", brand, result.stderr)
             return
 
         index_html = result.stdout
@@ -683,7 +752,7 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
         # Check if this briefing is already in the index (prevent duplicates)
         briefing_url = f"/briefings/{briefing['slug']}.html"
         if briefing_url in index_html:
-            log.info("intel_briefing: briefing already in index.html, skipping update")
+            log.info("intel_briefing: briefing already in %s index.html, skipping", brand)
             return
 
         # Insert the new card at the top of the analysis grid
@@ -692,7 +761,7 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
             insert_point = index_html.index(marker) + len(marker)
             index_html = index_html[:insert_point] + "\n" + card_html + "\n" + index_html[insert_point:]
         else:
-            log.warning("intel_briefing: could not find analysis-grid marker in index.html")
+            log.warning("intel_briefing: could not find analysis-grid marker in %s index.html", brand)
             return
 
         # Upload updated index.html
@@ -707,28 +776,31 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
             )
             subprocess.run(
                 ["ssh", GCP_SSH_HOST,
-                 f"sudo cp /tmp/_intel_index.html {WEBROOT}/index.html && "
-                 f"sudo chown www-data:www-data {WEBROOT}/index.html && "
+                 f"sudo cp /tmp/_intel_index.html {webroot}/index.html && "
+                 f"sudo chown www-data:www-data {webroot}/index.html && "
                  f"rm /tmp/_intel_index.html"],
                 check=True, timeout=15,
             )
-            log.info("intel_briefing: updated index.html with new briefing card")
+            log.info("intel_briefing: updated %s index.html with new briefing card", brand)
         except subprocess.CalledProcessError as e:
-            log.error("intel_briefing: failed to update index.html: %s", e)
+            log.error("intel_briefing: failed to update %s index.html: %s", brand, e)
         finally:
             os.unlink(tmp_path)
 
     # ── Deployment ───────────────────────────────────────────────────────
 
-    def _deploy_briefing(self, briefing: dict, html: str) -> str:
+    def _deploy_briefing(self, briefing: dict, html: str, brand: str = "puretensor") -> str:
         """Deploy the briefing HTML to GCP e2-micro. Returns the URL."""
+        bc = BRANDS[brand]
+        webroot = bc["webroot"]
+        briefings_dir = f"{webroot}/briefings"
         filename = f"{briefing['slug']}.html"
 
         # Ensure briefings directory exists
         subprocess.run(
             ["ssh", GCP_SSH_HOST,
-             f"sudo mkdir -p {BRIEFINGS_DIR} && "
-             f"sudo chown www-data:www-data {BRIEFINGS_DIR}"],
+             f"sudo mkdir -p {briefings_dir} && "
+             f"sudo chown www-data:www-data {briefings_dir}"],
             capture_output=True, timeout=15,
         )
 
@@ -744,18 +816,18 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
             )
             subprocess.run(
                 ["ssh", GCP_SSH_HOST,
-                 f"sudo cp /tmp/_intel_briefing.html {BRIEFINGS_DIR}/{filename} && "
-                 f"sudo chown www-data:www-data {BRIEFINGS_DIR}/{filename} && "
-                 f"sudo chmod 644 {BRIEFINGS_DIR}/{filename} && "
+                 f"sudo cp /tmp/_intel_briefing.html {briefings_dir}/{filename} && "
+                 f"sudo chown www-data:www-data {briefings_dir}/{filename} && "
+                 f"sudo chmod 644 {briefings_dir}/{filename} && "
                  f"rm /tmp/_intel_briefing.html"],
                 check=True, timeout=15,
             )
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"SCP deployment failed: {e}")
+            raise RuntimeError(f"SCP deployment failed ({brand}): {e}")
         finally:
             os.unlink(tmp_path)
 
-        url = f"https://intel.puretensor.ai/briefings/{filename}"
+        url = f"{bc['site_url']}/briefings/{filename}"
         log.info("intel_briefing: deployed to %s", url)
         return url
 
@@ -802,50 +874,74 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
             log.warning("intel_briefing: %s", msg)
             return ObserverResult(success=True, message="", data={"skipped": msg})
 
-        # 2. Generate briefing via Ollama
-        try:
-            briefing = self._generate_briefing(rss_articles, gdelt_articles)
-        except Exception as e:
-            error_msg = f"Briefing generation failed: {e}"
+        # 2-7. Generate, verify, deploy for each brand
+        MIN_BODY_CHARS = 3000
+        published_urls = []
+
+        for brand in ("puretensor", "varangian"):
+            brand_label = brand.capitalize()
+
+            # 2. Generate briefing via LLM
+            try:
+                briefing = self._generate_briefing(rss_articles, gdelt_articles, brand=brand)
+            except Exception as e:
+                error_msg = f"Briefing generation failed ({brand_label}): {e}"
+                self.send_telegram(f"[intel_briefing] ERROR: {error_msg}", token=ALERT_BOT_TOKEN)
+                log.error("intel_briefing: %s", error_msg)
+                continue  # try next brand
+
+            # 3. Verify body is not truncated
+            body_len = len(briefing.get("body", ""))
+            if body_len < MIN_BODY_CHARS:
+                error_msg = (
+                    f"{brand_label} briefing body too short ({body_len} chars, "
+                    f"min {MIN_BODY_CHARS}) — likely truncated. Skipping."
+                )
+                log.warning("intel_briefing: %s", error_msg)
+                self.send_telegram(f"[intel_briefing] WARN: {error_msg}", token=ALERT_BOT_TOKEN)
+                continue
+
+            # 4. Generate HTML
+            html = self._generate_briefing_html(briefing, brand=brand)
+
+            # 5. Deploy to GCP
+            try:
+                url = self._deploy_briefing(briefing, html, brand=brand)
+                published_urls.append(url)
+            except Exception as e:
+                log.error("intel_briefing: deployment failed (%s): %s", brand, e)
+                continue
+
+            # 6. Update index.html
+            try:
+                self._update_index(briefing, brand=brand)
+            except Exception as e:
+                log.error("intel_briefing: %s index update failed: %s", brand, e)
+
+        if not published_urls:
+            error_msg = "All brand deployments failed"
             self.send_telegram(f"[intel_briefing] ERROR: {error_msg}", token=ALERT_BOT_TOKEN)
             return ObserverResult(success=False, error=error_msg)
 
-        # 3. Generate HTML
-        html = self._generate_briefing_html(briefing)
-
-        # 4. Deploy to GCP
-        try:
-            url = self._deploy_briefing(briefing, html)
-        except Exception as e:
-            error_msg = f"Deployment failed: {e}"
-            self.send_telegram(f"[intel_briefing] ERROR: {error_msg}", token=ALERT_BOT_TOKEN)
-            return ObserverResult(success=False, error=error_msg)
-
-        # 5. Update index.html
-        try:
-            self._update_index(briefing)
-        except Exception as e:
-            log.error("intel_briefing: index update failed (briefing still deployed): %s", e)
-
-        # 6. Save state
+        # 7. Save state (use last briefing slug for dedup tracking)
         state = self._load_state()
         state["published"].append({
             "slug": briefing["slug"],
             "title": briefing["title"],
             "date": briefing["date"],
-            "url": url,
+            "urls": published_urls,
         })
-        # Keep last 100 entries
         state["published"] = state["published"][-100:]
         self._save_state(state)
 
-        # 7. Report
+        # 8. Report
         elapsed = time.time() - start_time
         backend_label = getattr(self, "_last_backend", "Unknown")
+        url_list = "\n  ".join(published_urls)
         message = (
-            f"Intel briefing published:\n"
+            f"Intel briefings published ({len(published_urls)} brands):\n"
             f"  {briefing['title']}\n"
-            f"  {url}\n"
+            f"  {url_list}\n"
             f"  Engine: {backend_label}\n"
             f"  {total_articles} sources | {elapsed:.0f}s pipeline"
         )
@@ -856,7 +952,7 @@ Remember: analytical, dispassionate, evidence-based. British English. No markdow
             message=message,
             data={
                 "title": briefing["title"],
-                "url": url,
+                "urls": published_urls,
                 "articles": total_articles,
                 "elapsed_seconds": round(elapsed, 1),
             },
