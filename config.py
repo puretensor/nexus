@@ -35,12 +35,12 @@ ANTHROPIC_TOTAL_TIMEOUT = int(os.environ.get("ANTHROPIC_TOTAL_TIMEOUT", "300"))
 
 # vLLM — local OpenAI-compatible endpoint
 VLLM_URL = os.environ.get("VLLM_URL", "http://localhost:8200/v1")
-VLLM_MODEL = os.environ.get("VLLM_MODEL", "/mnt/storage/models/MiniMax-M2.5-NVFP4")
+VLLM_MODEL = os.environ.get("VLLM_MODEL", "/mnt/storage/models/Qwen3-235B-A22B-Instruct-2507-NVFP4")
 VLLM_TOOLS_ENABLED = os.environ.get("VLLM_TOOLS_ENABLED", "true").lower() == "true"
 VLLM_TOOL_MAX_ITER = int(os.environ.get("VLLM_TOOL_MAX_ITER", "10"))
 VLLM_TOOL_TIMEOUT = int(os.environ.get("VLLM_TOOL_TIMEOUT", "60"))
 VLLM_TOTAL_TIMEOUT = int(os.environ.get("VLLM_TOTAL_TIMEOUT", "300"))
-VLLM_MAX_TOKENS = int(os.environ.get("VLLM_MAX_TOKENS", "4096"))
+VLLM_MAX_TOKENS = int(os.environ.get("VLLM_MAX_TOKENS", "8192"))
 
 # Ollama — local models (default)
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")

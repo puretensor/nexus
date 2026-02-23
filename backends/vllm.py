@@ -1,12 +1,13 @@
-"""vLLM backend — OpenAI-compatible API for local models (e.g. MiniMax M2.5).
+"""vLLM backend — OpenAI-compatible API for local models (Qwen3-235B-A22B NVFP4).
 
 Mirrors anthropic_api.py structure with OpenAI message format:
   - System prompt prepended per-request (not stored in history)
   - Tool calls in OpenAI format (tool_calls / role=tool)
   - <think>...</think> blocks preserved in assistant_msg during the tool loop
-    (MiniMax M2.5 requires interleaved thinking between tool rounds)
+    (model reasoning between tool rounds improves accuracy)
   - <think> stripped only for user-facing text and persistent DB history
   - Conversation history persisted in DB (session memory across turns)
+  - NVFP4 JSON safety: malformed tool call args trigger low-temperature retry
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import json
 import logging
 import re
 import uuid
+from datetime import datetime, timezone
 
 from openai import OpenAI, AsyncOpenAI
 from db import get_conversation_history, save_conversation_history
@@ -24,8 +26,38 @@ from backends.tools import TOOL_SCHEMAS, ToolCall, run_tool_loop_sync, run_tool_
 
 log = logging.getLogger("nexus")
 
-# Strip MiniMax M2.5 thinking tokens before returning text to user
+# Strip thinking tokens before returning text to user
 _THINK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
+
+# ---------------------------------------------------------------------------
+# Tool-nudge: keywords that imply the user wants live/current data.
+# If any match, append a reminder so the model reaches for web_search.
+# ---------------------------------------------------------------------------
+_NUDGE_KEYWORDS = re.compile(
+    r"\b(?:"
+    r"market[s]?|stock[s]?|share[s]?|index|indices|ftse|s&p|nasdaq|dow|nikkei|dax"
+    r"|price[s]?|cost[s]?|worth|valuation"
+    r"|bitcoin|btc|ethereum|eth|crypto|coin[s]?"
+    r"|gold|silver|oil|brent|crude|commodit(?:y|ies)"
+    r"|forex|exchange rate|usd|gbp|eur|yen|dollar|pound|euro"
+    r"|inflation|interest rate|gdp|unemployment|economic"
+    r"|weather|forecast|temperature|rain|snow|wind"
+    r"|news|headline[s]?|latest|today|tonight|current(?:ly)?"
+    r"|score[s]?|match|game|result[s]?|premier league|champions league"
+    r"|elect(?:ion|ed)|president|minister|government|parliament|congress"
+    r"|war|conflict|ceasefire|sanction[s]?"
+    r"|launch(?:ed)?|release[d]?|announced|update[d]?"
+    r")\b",
+    re.IGNORECASE,
+)
+_NUDGE_MSG = "\n\n[This question likely involves real-time data. Use web_search to get current information before answering.]"
+
+
+def _maybe_nudge(text: str) -> str:
+    """Append a tool-use reminder if the message looks like it needs live data."""
+    if _NUDGE_KEYWORDS.search(text):
+        return text + _NUDGE_MSG
+    return text
 
 
 def _clean_for_history(messages: list) -> list:
@@ -40,7 +72,8 @@ def _clean_for_history(messages: list) -> list:
     for msg in messages:
         role = msg.get("role")
         if role == "user" and isinstance(msg.get("content"), str):
-            result.append({"role": "user", "content": msg["content"]})
+            clean = msg["content"].replace(_NUDGE_MSG, "")
+            result.append({"role": "user", "content": clean})
         elif role == "assistant" and not msg.get("tool_calls"):
             text = _THINK_RE.sub("", msg.get("content") or "").strip()
             if text:
@@ -104,8 +137,7 @@ class VLLMBackend:
         msg = resp.choices[0].message
 
         # Preserve raw content (including <think>) for assistant_msg.
-        # MiniMax M2.5 requires interleaved thinking to maintain state between
-        # tool-call rounds — stripping it before the next round degrades accuracy.
+        # Interleaved reasoning between tool-call rounds improves accuracy.
         raw_content = msg.content or ""
 
         # Strip thinking tokens for user-facing display only.
@@ -119,6 +151,9 @@ class VLLMBackend:
                 try:
                     args = json.loads(tc.function.arguments or "{}")
                 except json.JSONDecodeError:
+                    # NVFP4 W4A4 can produce malformed JSON — log and skip
+                    log.warning("Malformed tool call JSON from %s: %s",
+                                tc.function.name, tc.function.arguments)
                     args = {}
                 tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args))
                 tc_dicts.append({
@@ -162,10 +197,12 @@ class VLLMBackend:
     ) -> dict:
         session_id = session_id or str(uuid.uuid4())
 
-        system_str = "\n\n".join(p for p in [system_prompt, memory_context] if p) or None
+        now = datetime.now(timezone.utc).strftime("Current date: %A, %B %d, %Y. Current time: %H:%M UTC.")
+        system_str = "\n\n".join(p for p in [system_prompt, now, memory_context] if p) or None
 
         history = get_conversation_history(session_id)
-        messages = history + [{"role": "user", "content": prompt}]
+        nudged = _maybe_nudge(prompt)
+        messages = history + [{"role": "user", "content": nudged}]
 
         def send_request(msgs):
             api_msgs = ([{"role": "system", "content": system_str}] + msgs) if system_str else msgs
@@ -174,9 +211,9 @@ class VLLMBackend:
                 messages=api_msgs,
                 tools=self._tools,
                 max_tokens=self._max_tokens,
-                temperature=1.0,
-                top_p=0.95,
-                extra_body={"top_k": 40},
+                temperature=0.3 if self._tools else 0.7,
+                top_p=0.8,
+                extra_body={"top_k": 20, "min_p": 0, "repetition_penalty": 1.05},
                 timeout=min(timeout, self._total_timeout),
             )
 
@@ -226,12 +263,14 @@ class VLLMBackend:
     ) -> dict:
         session_id = session_id or str(uuid.uuid4())
 
+        now = datetime.now(timezone.utc).strftime("Current date: %A, %B %d, %Y. Current time: %H:%M UTC.")
         system_str = (
-            "\n\n".join(p for p in [system_prompt, memory_context, extra_system_prompt] if p) or None
+            "\n\n".join(p for p in [system_prompt, now, memory_context, extra_system_prompt] if p) or None
         )
 
         history = get_conversation_history(session_id)
-        messages = history + [{"role": "user", "content": message}]
+        nudged = _maybe_nudge(message)
+        messages = history + [{"role": "user", "content": nudged}]
 
         async def send_request(msgs):
             api_msgs = ([{"role": "system", "content": system_str}] + msgs) if system_str else msgs
@@ -240,9 +279,9 @@ class VLLMBackend:
                 messages=api_msgs,
                 tools=self._tools,
                 max_tokens=self._max_tokens,
-                temperature=1.0,
-                top_p=0.95,
-                extra_body={"top_k": 40},
+                temperature=0.3 if self._tools else 0.7,
+                top_p=0.8,
+                extra_body={"top_k": 20, "min_p": 0, "repetition_penalty": 1.05},
                 timeout=self._total_timeout,
             )
 
