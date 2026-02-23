@@ -83,7 +83,7 @@ GOLD_API_KEY = os.environ.get("GOLD_API_KEY", "")
 
 # Gitea
 GITEA_URL = os.environ.get("GITEA_URL", "http://MON1_TAILSCALE_IP:3002")
-GITEA_TOKEN = os.environ.get("GITEA_TOKEN", "REDACTED_GITEA_TOKEN")
+GITEA_TOKEN = os.environ.get("GITEA_TOKEN", "")
 
 # Daily snippet
 SNIPPET_SMTP_HOST = os.environ.get("SNIPPET_SMTP_HOST", "")
