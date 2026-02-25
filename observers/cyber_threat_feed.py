@@ -672,13 +672,17 @@ FORMATTING RULES:
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,2 28,28 16,22 4,28' fill='%2300E5FF'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 :root {{
-    --bg-primary: #0A0C10;
-    --bg-surface: #0F1218;
-    --bg-elevated: #161B24;
+    --bg-primary: #09090b;
+    --bg-surface: #0f0f12;
+    --bg-elevated: #16161a;
     --bg-card: #1A1F2B;
+    --gold: #c9b97a;
+    --gold-bright: #ddd0a0;
+    --gold-dim: #8b7f52;
+    --gold-border: rgba(201, 185, 122, 0.2);
     --cyan: #00E5FF;
     --cyan-dim: #0088A3;
     --cyan-border: rgba(0, 229, 255, 0.15);
@@ -693,10 +697,11 @@ FORMATTING RULES:
     --green-dim: rgba(52, 199, 89, 0.15);
     --blue: #5AC8FA;
     --blue-dim: rgba(90, 200, 250, 0.15);
-    --text-primary: #E6EAF0;
-    --text-secondary: #8B95A5;
-    --text-muted: #4A5568;
+    --text-primary: #e8e4dc;
+    --text-secondary: #9a958b;
+    --text-muted: #5a564e;
     --border: rgba(255, 255, 255, 0.06);
+    --font-serif: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
 }}
@@ -715,9 +720,10 @@ body {{
 /* Navigation */
 nav {{
     position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
-    padding: 1rem 2rem;
-    background: rgba(10, 12, 16, 0.9);
+    padding: 1.25rem 2rem;
+    background: rgba(9, 9, 11, 0.85);
     backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
 }}
 .nav-inner {{
@@ -727,19 +733,22 @@ nav {{
 }}
 .nav-brand {{
     display: flex; align-items: center; gap: 0.6rem;
-    font-weight: 600; font-size: 0.95rem;
-    color: var(--cyan); letter-spacing: 0.15em;
+    font-family: var(--font-serif);
+    font-weight: 600; font-size: 1.4rem;
+    color: var(--gold); letter-spacing: 0.15em;
     text-transform: uppercase; text-decoration: none;
 }}
 .nav-brand svg {{ width: 24px; height: 24px; flex-shrink: 0; opacity: 0.35; }}
 .nav-brand span {{ color: var(--text-secondary); font-weight: 300; }}
 .nav-links {{ display: flex; gap: 1.5rem; }}
 .nav-links a {{
+    font-family: var(--font-mono);
     color: var(--text-secondary); text-decoration: none;
-    font-size: 0.85rem; letter-spacing: 0.05em;
+    font-size: 0.72rem; font-weight: 400;
+    text-transform: uppercase; letter-spacing: 0.1em;
     transition: color 0.2s;
 }}
-.nav-links a:hover {{ color: var(--cyan); }}
+.nav-links a:hover {{ color: var(--gold); }}
 
 /* Main */
 main {{
@@ -971,7 +980,7 @@ main {{
             # CSS colour variables: cyan → gold
             ("--cyan: #00E5FF;", "--gold: #c9b97a;"),
             ("--cyan-dim: #0088A3;", "--gold-dim: #8b7f52;"),
-            ("--cyan-border: rgba(0, 229, 255, 0.15);", "--gold-border: rgba(201, 185, 122, 0.15);"),
+            ("--cyan-border: rgba(0, 229, 255, 0.15);", "--gold-border: rgba(201, 185, 122, 0.2);"),
             ("--cyan-glow: rgba(0, 229, 255, 0.06);", "--gold-glow: rgba(201, 185, 122, 0.06);"),
             # CSS variable references
             ("var(--cyan-dim)", "var(--gold-dim)"),
