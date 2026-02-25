@@ -146,6 +146,21 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Intel pipeline intercept — .txt files when /intel is pending
+    from channels.telegram.commands import _intel_pending, _run_intel_pipeline
+    is_plaintext = (
+        (document.mime_type or "") == "text/plain"
+        or (document.file_name or "").lower().endswith(".txt")
+    )
+    if _intel_pending.get(chat_id) and is_plaintext:
+        del _intel_pending[chat_id]
+        tg_file = await context.bot.get_file(document.file_id)
+        buf = io.BytesIO()
+        await tg_file.download_to_memory(buf)
+        text = buf.getvalue().decode("utf-8", errors="replace")
+        asyncio.create_task(_run_intel_pipeline(update, text))
+        return
+
     lock = get_lock(chat_id)
     if lock.locked():
         await update.message.reply_text("Still processing previous message — please wait.")

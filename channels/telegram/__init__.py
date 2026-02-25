@@ -30,6 +30,7 @@ class TelegramChannel(Channel):
             cmd_remember, cmd_forget, cmd_memories,
             cmd_check, cmd_restart, cmd_logs, cmd_disk, cmd_top, cmd_deploy,
             cmd_drafts, cmd_calendar, cmd_followups,
+            cmd_intel,
             handle_message, handle_voice,
         )
         from channels.telegram.callbacks import handle_callback
@@ -81,6 +82,9 @@ class TelegramChannel(Channel):
         self.app.add_handler(CommandHandler("disk", cmd_disk))
         self.app.add_handler(CommandHandler("top", cmd_top))
         self.app.add_handler(CommandHandler("deploy", cmd_deploy))
+
+        # Intel manual publish
+        self.app.add_handler(CommandHandler("intel", cmd_intel))
 
         # Data card commands
         self.app.add_handler(CommandHandler("weather", cmd_weather_card))

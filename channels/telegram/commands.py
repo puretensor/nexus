@@ -1036,6 +1036,63 @@ async def cmd_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------------------------------------------------------------------
+# Intel manual publish pipeline
+# ---------------------------------------------------------------------------
+
+# Tracks which chat_ids are waiting for a source article to publish.
+# Set by /intel, cleared on first non-command message received.
+_intel_pending: dict[int, bool] = {}
+
+
+@authorized
+async def cmd_intel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /intel [text] — inject a manually-sourced article into the intel pipeline."""
+    chat_id = update.effective_chat.id
+
+    # If text is provided inline and long enough, run pipeline immediately
+    inline_text = " ".join(context.args) if context.args else ""
+    if len(inline_text) > 200:
+        asyncio.create_task(_run_intel_pipeline(update, inline_text))
+    else:
+        _intel_pending[chat_id] = True
+        await update.message.reply_text(
+            "Intel publish pipeline ready.\n"
+            "Paste your source article or send a .txt file."
+        )
+
+
+async def _run_intel_pipeline(update: Update, text: str):
+    """Run the intel manual publish pipeline and send result to Telegram."""
+    chat_id = update.effective_chat.id
+    await update.message.reply_text(
+        f"Running council verification on {len(text):,} character article..."
+    )
+    try:
+        from observers.intel_manual_publish import IntelManualPublisher
+        result = await asyncio.to_thread(IntelManualPublisher().run, text)
+    except Exception as e:
+        log.exception("intel pipeline error")
+        await update.message.reply_text(f"Pipeline error: {e}")
+        return
+
+    if not result["passed"]:
+        await update.message.reply_text(
+            f"REJECTED — Council score: {result['score']:.1f}/10\n\n"
+            f"Notes: {result['notes']}"
+        )
+        return
+
+    urls = result.get("urls", [])
+    elapsed = result.get("elapsed", 0)
+    url_lines = "\n".join(urls) if urls else "(no URLs returned)"
+    await update.message.reply_text(
+        f"Published — Council score: {result['score']:.1f}/10\n\n"
+        f"{url_lines}\n\n"
+        f"Elapsed: {elapsed:.0f}s"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main message handler
 # ---------------------------------------------------------------------------
 
@@ -1046,6 +1103,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
 
     if not user_text or not user_text.strip():
+        return
+
+    # Intel pipeline intercept — consume pending state before Claude routing
+    if _intel_pending.get(chat_id):
+        del _intel_pending[chat_id]
+        asyncio.create_task(_run_intel_pipeline(update, user_text))
         return
 
     lock = get_lock(chat_id)
