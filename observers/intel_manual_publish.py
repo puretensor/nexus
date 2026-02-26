@@ -18,6 +18,8 @@ import os
 import re
 import tempfile
 import time
+import urllib.parse
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,11 +40,27 @@ log = logging.getLogger("nexus")
 # topic relevance; council only verifies quality/veracity.
 COUNCIL_THRESHOLD = 6.0
 
+SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://GCP_MEDIUM_TAILSCALE_IP:8080/search")
+
+QUERY_EXTRACT_PROMPT = """\
+Extract 3 targeted web search queries to fact-check the key claims in this article.
+Query 1: Key entities/people mentioned (names, titles, organisations)
+Query 2: The core event or action being claimed
+Query 3: Broader geopolitical/industry context
+
+Respond as JSON array of 3 strings, nothing else. Example: ["query 1", "query 2", "query 3"]
+
+ARTICLE (first 2000 chars):
+{text}
+"""
+
 COUNCIL_VERIFY_PROMPT = """\
 You are a fact-checking editor. Score this article on three dimensions (1-10):
 - Accuracy: Are the factual claims verifiable and internally consistent?
 - Coherence: Is the reasoning logical, sourcing credible, conclusions supported?
 - Depth: Is the analysis substantive enough to publish as intelligence output?
+
+{web_context}
 
 Respond as JSON: {{"accuracy": N, "coherence": N, "depth": N, "verdict": "pass|fail", "notes": "..."}}
 
@@ -57,12 +75,83 @@ class IntelManualPublisher:
     def __init__(self):
         self._observer = IntelDeepAnalysisObserver()
 
+    # ── Web Grounding ──────────────────────────────────────────────────────
+
+    def _extract_search_queries(self, text: str) -> list[str]:
+        """Use Gemini Flash to extract 3 fact-check search queries from article text."""
+        try:
+            prompt = QUERY_EXTRACT_PROMPT.format(text=text[:2000])
+            raw = call_gemini_flash(
+                "Extract search queries as a JSON array of 3 strings.",
+                prompt, timeout=15, temperature=0.1,
+            )
+            parsed = extract_json(raw)
+            if isinstance(parsed, list) and len(parsed) >= 1:
+                return [str(q) for q in parsed[:3]]
+        except Exception as e:
+            log.warning("intel_manual_publish: query extraction failed: %s", e)
+        return []
+
+    def _search_grounding(self, queries: list[str]) -> str:
+        """Run SearXNG news searches in parallel and return formatted context."""
+        if not queries:
+            return ""
+
+        def _search_one(query: str) -> list[dict]:
+            try:
+                params = urllib.parse.urlencode({
+                    "q": query, "format": "json", "categories": "news",
+                })
+                req = urllib.request.Request(
+                    f"{SEARXNG_URL}?{params}",
+                    headers={"User-Agent": "PureTensor-Intel/2.0"},
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    data = json.loads(resp.read())
+                return [
+                    {"title": r.get("title", ""), "url": r.get("url", ""),
+                     "snippet": r.get("content", "")[:200]}
+                    for r in data.get("results", [])[:3]
+                ]
+            except Exception:
+                return []
+
+        all_results: list[dict] = []
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {pool.submit(_search_one, q): q for q in queries}
+            for future in as_completed(futures, timeout=30):
+                try:
+                    all_results.extend(future.result())
+                except Exception:
+                    pass
+
+        if not all_results:
+            return ""
+
+        lines = ["CURRENT WEB SOURCES (retrieved live — use these to verify factual claims):"]
+        for r in all_results:
+            lines.append(f"- {r['title']} ({r['url']})")
+            if r["snippet"]:
+                lines.append(f"  {r['snippet']}")
+        return "\n".join(lines)
+
     # ── Council Verification ──────────────────────────────────────────────
 
     def _council_verify(self, text: str) -> tuple[bool, float, str]:
         """Run AI Council to verify article quality. Returns (passed, score, notes)."""
+        # Web grounding: extract queries and search for corroboration
+        queries = self._extract_search_queries(text)
+        if queries:
+            log.info("intel_manual_publish: search queries: %s", queries)
+        web_context = self._search_grounding(queries)
+        if web_context:
+            log.info("intel_manual_publish: injecting %d chars of web grounding", len(web_context))
+        else:
+            web_context = "No live web sources available — evaluate based on article content alone."
+            log.info("intel_manual_publish: no web grounding available, council runs ungrounded")
+
         truncated = text[:8000]
-        prompt = COUNCIL_VERIFY_PROMPT.format(text=truncated)
+        prompt = COUNCIL_VERIFY_PROMPT.format(text=truncated, web_context=web_context)
         system = "You are a fact-checking editor. Respond only with valid JSON."
 
         callers = {
