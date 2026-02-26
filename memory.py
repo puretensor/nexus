@@ -172,3 +172,24 @@ def memory_count() -> int:
     """Return total number of stored memories."""
     data = _load()
     return len(data["memories"])
+
+
+# ---------------------------------------------------------------------------
+# Shared context (PureClaw ↔ HAL sync)
+# ---------------------------------------------------------------------------
+
+SHARED_CONTEXT_PATH = Path(os.environ.get(
+    "SHARED_CONTEXT_PATH", "/data/sync/pureclaw_memory.md"
+))
+
+
+def get_shared_context() -> str:
+    """Read the synced PureClaw MEMORY.md for injection into HAL's prompt."""
+    if not SHARED_CONTEXT_PATH.exists():
+        return ""
+    try:
+        text = SHARED_CONTEXT_PATH.read_text(encoding="utf-8").strip()
+        return f"[PureClaw Shared Memory]\n{text}" if text else ""
+    except Exception as exc:
+        log.warning("Failed to read shared context: %s", exc)
+        return ""

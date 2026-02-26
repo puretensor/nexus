@@ -37,7 +37,6 @@ def _build_observer_registry():
         ("observers.git_push", "GitPushObserver"),
         ("observers.darwin_consumer", "DarwinConsumer"),
         ("observers.followup_reminder", "FollowupReminderObserver"),
-        ("observers.pureclaw_email_responder", "PureClawEmailResponderObserver"),
         # alertmanager_monitor disabled — alerts suppressed from HAL interface
         # ("observers.alertmanager_monitor", "AlertmanagerMonitorObserver"),
         ("observers.cyber_threat_feed", "CyberThreatFeedObserver"),
@@ -45,6 +44,7 @@ def _build_observer_registry():
         # generates both full analysis articles and summary briefing cards
         # ("observers.intel_briefing", "IntelBriefingObserver"),
         ("observers.intel_deep_analysis", "IntelDeepAnalysisObserver"),
+        ("observers.memory_sync", "MemorySyncObserver"),
     ]
 
     import importlib

@@ -14,9 +14,10 @@ import logging
 from config import SYSTEM_PROMPT, CLAUDE_MODEL
 
 try:
-    from memory import get_memories_for_injection
+    from memory import get_memories_for_injection, get_shared_context
 except ImportError:
     get_memories_for_injection = None
+    get_shared_context = None
 
 log = logging.getLogger("nexus")
 
@@ -241,8 +242,17 @@ async def call_streaming(
     from backends import get_backend
 
     memory_ctx = None
+    parts = []
     if get_memories_for_injection:
-        memory_ctx = get_memories_for_injection()
+        mem = get_memories_for_injection()
+        if mem:
+            parts.append(mem)
+    if get_shared_context:
+        shared = get_shared_context()
+        if shared:
+            parts.append(shared)
+    if parts:
+        memory_ctx = "\n\n".join(parts)
 
     return await get_backend().call_streaming(
         message,

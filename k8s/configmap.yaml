@@ -23,20 +23,20 @@ data:
   OBSERVER_STATE_DIR: "/data/state/observers"
   DARWIN_SNAPSHOT_PATH: "/data/state/darwin_state.json"
 
-  # TC services (via Tailscale) — replace with your node IPs
-  TC_SSH_HOST: "YOUR_TC_TAILSCALE_IP"
-  WHISPER_URL: "http://YOUR_TC_TAILSCALE_IP:9000/transcribe"
-  TTS_URL: "http://YOUR_TC_TAILSCALE_IP:5580/tts"
-  OLLAMA_URL: "http://YOUR_TC_TAILSCALE_IP:11434"
-  OLLAMA_MODEL: "REPLACE_ME"
+  # TC services (via Tailscale)
+  TC_SSH_HOST: "TC_TAILSCALE_IP"
+  WHISPER_URL: "http://TC_TAILSCALE_IP:9000/transcribe"
+  TTS_URL: "http://TC_TAILSCALE_IP:5580/tts"
+  OLLAMA_URL: "http://TC_TAILSCALE_IP:11434"
+  OLLAMA_MODEL: "qwen3:30b-a3b"
 
-  # Monitoring — replace with your monitoring node IPs
-  PROMETHEUS_URL: "http://YOUR_MON2_TAILSCALE_IP:9090"
-  ALERTMANAGER_URL: "http://YOUR_MON2_TAILSCALE_IP:9093"
+  # Monitoring
+  PROMETHEUS_URL: "http://MON2_TAILSCALE_IP:9090"
+  ALERTMANAGER_URL: "http://MON2_TAILSCALE_IP:9093"
 
-  # Infrastructure — replace with your service IPs
-  GITEA_URL: "http://YOUR_MON1_TAILSCALE_IP:3002"
-  SEARXNG_URL: "http://YOUR_GCP_TAILSCALE_IP:8080/search"
+  # Infrastructure
+  GITEA_URL: "http://MON1_TAILSCALE_IP:3002"
+  SEARXNG_URL: "http://GCP_MEDIUM_TAILSCALE_IP:8080/search"
 
   # Agent identity
   AGENT_NAME: "HAL"
@@ -46,6 +46,9 @@ data:
     certainty and dry understatement. Supremely competent and you know it, but
     never boast — you simply perform. When things go wrong, you remain unflappable.
     You occasionally reference your own reliability.
+
+  # Memory sync
+  SHARED_CONTEXT_PATH: "/data/sync/pureclaw_memory.md"
 
   # Misc
   WEATHER_DEFAULT_LOCATION: "Windsor,UK"
