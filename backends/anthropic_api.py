@@ -21,35 +21,47 @@ log = logging.getLogger("nexus")
 
 
 def _sanitize_history(messages: list[dict]) -> list[dict]:
-    """Remove orphaned tool_result blocks from conversation history.
+    """Ensure tool_use / tool_result pairing in conversation history.
 
-    The Anthropic API requires every tool_result to reference a tool_use_id
-    from the immediately preceding assistant message. History corruption
-    (restarts, trimming, session merges) can orphan tool_results, causing
-    400 errors. This pre-flight check strips them.
+    The Anthropic API requires:
+      1. Every tool_result references a tool_use_id from the nearest
+         preceding assistant message (scanning past other tool_result msgs).
+      2. Every tool_use_id in an assistant message has a corresponding
+         tool_result in the subsequent user messages before the next
+         assistant or user (non-tool-result) message.
+
+    History corruption (restarts, trimming, timeouts) can break either
+    invariant. This pre-flight pass fixes both directions.
     """
     if not messages:
         return messages
 
+    # --- Pass 1: strip orphaned tool_results ---
     cleaned = []
-    for i, msg in enumerate(messages):
+    for msg in messages:
         content = msg.get("content")
 
-        # Check if this message contains tool_result blocks
         if isinstance(content, list) and any(
             isinstance(b, dict) and b.get("type") == "tool_result" for b in content
         ):
-            # Find valid tool_use_ids from the preceding assistant message
+            # Scan backwards through cleaned to find nearest assistant msg
+            # (skipping other tool_result messages — they belong to the same
+            # assistant turn).
             valid_ids = set()
-            if cleaned:
-                prev = cleaned[-1]
+            for prev in reversed(cleaned):
                 prev_content = prev.get("content")
                 if prev.get("role") == "assistant" and isinstance(prev_content, list):
                     for b in prev_content:
                         if isinstance(b, dict) and b.get("type") == "tool_use":
                             valid_ids.add(b.get("id"))
+                    break
+                # Keep scanning past other tool_result user messages
+                if prev.get("role") == "user" and isinstance(prev_content, list) and all(
+                    isinstance(b, dict) and b.get("type") == "tool_result" for b in prev_content
+                ):
+                    continue
+                break  # hit a non-tool-result message — stop
 
-            # Filter to only tool_results with valid references
             kept_blocks = []
             for b in content:
                 if isinstance(b, dict) and b.get("type") == "tool_result":
@@ -65,11 +77,57 @@ def _sanitize_history(messages: list[dict]) -> list[dict]:
 
             if kept_blocks:
                 cleaned.append({**msg, "content": kept_blocks})
-            # else: entire message was orphaned tool_results — drop it
         else:
             cleaned.append(msg)
 
-    return cleaned
+    # --- Pass 2: strip orphaned tool_use blocks from assistant messages ---
+    # For each assistant message with tool_use blocks, collect the tool_result
+    # IDs that follow it (before the next non-tool-result message).
+    final = []
+    for i, msg in enumerate(cleaned):
+        content = msg.get("content")
+        if msg.get("role") == "assistant" and isinstance(content, list):
+            tool_use_ids = {
+                b.get("id") for b in content
+                if isinstance(b, dict) and b.get("type") == "tool_use"
+            }
+            if tool_use_ids:
+                # Collect tool_result IDs from subsequent messages
+                answered_ids = set()
+                for j in range(i + 1, len(cleaned)):
+                    nxt = cleaned[j]
+                    nxt_content = nxt.get("content")
+                    if nxt.get("role") == "user" and isinstance(nxt_content, list):
+                        for b in nxt_content:
+                            if isinstance(b, dict) and b.get("type") == "tool_result":
+                                answered_ids.add(b.get("tool_use_id"))
+                        # Keep scanning if this was a pure tool_result message
+                        if all(
+                            isinstance(b, dict) and b.get("type") == "tool_result"
+                            for b in nxt_content
+                        ):
+                            continue
+                    break  # next assistant msg or regular user msg
+
+                orphaned = tool_use_ids - answered_ids
+                if orphaned:
+                    # Strip orphaned tool_use blocks from this assistant msg
+                    kept = [
+                        b for b in content
+                        if not (isinstance(b, dict) and b.get("type") == "tool_use"
+                                and b.get("id") in orphaned)
+                    ]
+                    log.warning(
+                        "Stripped %d orphaned tool_use block(s) from assistant msg",
+                        len(orphaned),
+                    )
+                    if kept:
+                        final.append({**msg, "content": kept})
+                    # else: entire assistant msg was orphaned tool_use — drop it
+                    continue
+        final.append(msg)
+
+    return final
 
 # Reusable cache directive
 _CACHE_EPHEMERAL = {"type": "ephemeral"}
