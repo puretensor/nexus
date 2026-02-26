@@ -213,6 +213,9 @@ if [ -d "$NEXUS_DIR/observers/.state" ] && [ "$(ls -A "$NEXUS_DIR/observers/.sta
   done
 fi
 
+# Fix ownership — seed pod runs as root but nexus runs as uid 1000
+ssh "$FOX_N1" "kubectl exec -n nexus nexus-seed -- chown -R 1000:1000 /data"
+
 ssh "$FOX_N1" "kubectl delete pod -n nexus nexus-seed --grace-period=0"
 echo "  Data seeded."
 
