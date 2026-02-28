@@ -872,24 +872,9 @@ class BretalonAutoPublishObserver(Observer):
 
     def _send_review_email(self, article: dict, post_info: dict,
                            council: CouncilResult) -> bool:
-        """Send review email via SMTP. Returns True on success."""
-        smtp_host = os.environ.get("BRETALON_SMTP_HOST", "")
-        smtp_port = int(os.environ.get("BRETALON_SMTP_PORT", "587"))
-        smtp_user = os.environ.get("BRETALON_SMTP_USER", "")
-        smtp_pass = os.environ.get("BRETALON_SMTP_PASS", "")
-        sender_from = os.environ.get("BRETALON_FROM", "")
+        """Send review email via gmail.py (hal@example.com). Returns True on success."""
         recipients_raw = os.environ.get("BRETALON_TO", "REDACTED_ALAN_EMAIL,REDACTED_HH_EMAIL")
         recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
-
-        if not smtp_pass:
-            log.warning("bretalon_autopublish: SMTP not configured, skipping review email")
-            return False
-
-        # Parse sender
-        if "<" in sender_from and ">" in sender_from:
-            sender_email = sender_from.split("<")[1].rstrip(">").strip()
-        else:
-            sender_email = sender_from
 
         # Format publish date
         pub_display = post_info.get("publish_date", "TBD")
@@ -940,7 +925,7 @@ class BretalonAutoPublishObserver(Observer):
 <html>
 <body style="font-family: Georgia, serif; max-width: 700px; margin: 0 auto; color: #222;">
 <p>Alan,</p>
-<p>A new article has been generated and scheduled for publication on bretalon.com.</p>
+<p>The Bretalon AI Council has reviewed and approved a new article for publication on bretalon.com.</p>
 
 <h2 style="color: #1a1a1a; margin-top: 2em;">{self._esc(article['title'])}</h2>
 <p style="color: #666; font-style: italic;">{self._esc(article.get('subtitle', ''))}</p>
@@ -964,26 +949,44 @@ class BretalonAutoPublishObserver(Observer):
 <p style="margin-top: 2em;">Reply <strong>APPROVE</strong> to confirm, <strong>REVISE</strong> with notes, or <strong>CANCEL</strong> to kill.</p>
 <p style="color: #999; font-size: 12px;">Auto-publishes at scheduled time if no response.</p>
 
-<p>Best,<br>HAL</p>
+<p>— HAL<br><span style="color:#999;font-size:12px;">Heterarchical Agentic Layer · hal@example.com</span></p>
 </body>
 </html>"""
 
-        msg = MIMEMultipart("alternative")
-        msg["From"] = sender_from
-        msg["To"] = ", ".join(recipients)
-        msg["Subject"] = subject
-        msg.attach(MIMEText(html_body, "html", "utf-8"))
+        # Write HTML to a temp file and send via gmail.py hal
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html",
+                                        delete=False, encoding="utf-8") as tmp:
+            tmp.write(html_body)
+            tmp_path = tmp.name
 
+        gmail_script = os.path.join(os.path.expanduser("~"),
+                                    ".config", "puretensor", "gmail.py")
         try:
-            with smtplib.SMTP(smtp_host, smtp_port) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_pass)
-                server.sendmail(sender_email, recipients, msg.as_string())
-            log.info("bretalon_autopublish: review email sent — %s", subject)
+            for recipient in recipients:
+                cmd = [
+                    "python3", gmail_script, "hal", "send",
+                    "--to", recipient,
+                    "--subject", subject,
+                    "--body", f"@{tmp_path}",
+                    "--html",
+                    "--cc", "ops@puretensor.ai",
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                if result.returncode != 0:
+                    log.error("bretalon_autopublish: gmail.py failed for %s: %s",
+                              recipient, result.stderr.strip())
+                    return False
+            log.info("bretalon_autopublish: review email sent via hal@example.com — %s", subject)
             return True
         except Exception as e:
             log.error("bretalon_autopublish: review email failed: %s", e)
             return False
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
     # ── SSH / SCP helpers ────────────────────────────────────────────────
 
