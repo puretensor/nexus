@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 with patch.dict("os.environ", {
     "TELEGRAM_BOT_TOKEN": "fake:token",
     "AUTHORIZED_USER_ID": "12345",
+    "VIP_SENDERS": "vip-user@example.com,ops@puretensor.ai,vip-personal@example.com",
 }):
     from drafts.classifier import classify_email
 
@@ -109,16 +110,16 @@ class TestNotifySubjects:
 class TestAutoReply:
 
     def test_vip_sender_alan(self):
-        assert classify_email("REDACTED_ALAN_EMAIL", "Report feedback") == "auto_reply"
+        assert classify_email("vip-user@example.com", "Report feedback") == "auto_reply"
 
     def test_vip_sender_ops(self):
         assert classify_email("ops@puretensor.ai", "Server question") == "auto_reply"
 
     def test_vip_sender_personal(self):
-        assert classify_email("REDACTED_PERSONAL_EMAIL", "Quick thought") == "auto_reply"
+        assert classify_email("vip-personal@example.com", "Quick thought") == "auto_reply"
 
     def test_vip_case_insensitive(self):
-        assert classify_email("Alan.Apter@Bretalon.com", "Report") == "auto_reply"
+        assert classify_email("VIP-User@Example.com", "Report") == "auto_reply"
 
     def test_vip_overrides_ignore(self):
         """VIP sender check runs before ignore rules."""

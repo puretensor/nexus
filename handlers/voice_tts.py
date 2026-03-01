@@ -16,7 +16,7 @@ log = logging.getLogger("nexus")
 _voice_mode: dict[int, bool] = {}
 
 # TTS API — configurable, defaults to TC Tailscale IP
-TTS_API_URL = os.environ.get("TTS_URL", "http://TC_TAILSCALE_IP:5580/tts")
+TTS_API_URL = os.environ.get("TTS_URL", "")
 
 
 def is_voice_mode(chat_id: int) -> bool:

@@ -46,7 +46,7 @@ Open Telegram, search for [@BotFather](https://t.me/BotFather), and send `/newbo
 
 ### 2. Find your Telegram user ID
 
-Send a message to [@userinfobot](https://t.me/userinfobot) in Telegram. It will reply with your numeric user ID (e.g. `REDACTED_TELEGRAM_ID`). This locks the bot to you — nobody else can use it.
+Send a message to [@userinfobot](https://t.me/userinfobot) in Telegram. It will reply with your numeric user ID (e.g. `123456789`). This locks the bot to you — nobody else can use it.
 
 ### 3. Clone and install
 
@@ -66,7 +66,7 @@ Open `.env` in a text editor and set these two required values:
 
 ```bash
 TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
-AUTHORIZED_USER_ID=REDACTED_TELEGRAM_ID
+AUTHORIZED_USER_ID=123456789
 ```
 
 ### 5. Set up your engine

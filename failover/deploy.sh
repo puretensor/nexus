@@ -4,7 +4,7 @@ set -euo pipefail
 # Deploy Nexus failover runner to fox-n1
 # Usage: ./deploy.sh [fox-n1-host]
 
-FOX_N1="${1:-root@FOX_N0_TAILSCALE_IP}"
+FOX_N1="${1:-root@fox-n0}"
 REMOTE_DIR="/opt/nexus-failover"
 NEXUS_SRC="$(cd "$(dirname "$0")/.." && pwd)"
 

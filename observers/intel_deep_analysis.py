@@ -45,9 +45,9 @@ RSS_CONF = Path(os.environ.get(
     str(Path.home() / ".config" / "puretensor" / "rss_feeds.conf"),
 ))
 
-GCP_SSH_HOST = "puretensorai@GCP_TAILSCALE_IP"
+GCP_SSH_HOST = os.environ.get("GCP_SSH_HOST", "")
 GDELT_DOC_API = "https://api.gdeltproject.org/api/v2/doc/doc"
-SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://GCP_MEDIUM_TAILSCALE_IP:8080/search")
+SEARXNG_URL = os.environ.get("SEARXNG_URL", "")
 
 COUNCIL_THRESHOLD = 7.0
 

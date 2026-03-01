@@ -4,10 +4,10 @@ metadata:
   name: nexus-local-config
   namespace: nexus-local
 data:
-  # Engine — vLLM backend pointing at local MiniMax M2.5
+  # Engine — vLLM backend pointing at local model
   ENGINE_BACKEND: "vllm"
-  VLLM_URL: "http://TC_TAILSCALE_IP:8200/v1"
-  VLLM_MODEL: "/mnt/storage/models/MiniMax-M2.5-NVFP4"
+  VLLM_URL: ""
+  VLLM_MODEL: ""
   VLLM_TOOLS_ENABLED: "true"
   VLLM_TOOL_MAX_ITER: "10"
   VLLM_TOOL_TIMEOUT: "60"
@@ -22,19 +22,19 @@ data:
   OBSERVER_STATE_DIR: "/data/state/observers"
   DARWIN_SNAPSHOT_PATH: "/data/state/darwin_state.json"
 
-  # TC services (via Tailscale)
-  TC_SSH_HOST: "TC_TAILSCALE_IP"
-  WHISPER_URL: "http://TC_TAILSCALE_IP:9000/transcribe"
-  TTS_URL: "http://TC_TAILSCALE_IP:5580/tts"
-  OLLAMA_URL: "http://TC_TAILSCALE_IP:11434"
+  # TC services (set IPs in nexus-env secret or override here)
+  TC_SSH_HOST: ""
+  WHISPER_URL: ""
+  TTS_URL: ""
+  OLLAMA_URL: ""
 
-  # Monitoring
-  PROMETHEUS_URL: "http://MON2_TAILSCALE_IP:9090"
-  ALERTMANAGER_URL: "http://MON2_TAILSCALE_IP:9093"
+  # Monitoring (set in nexus-env secret)
+  PROMETHEUS_URL: ""
+  ALERTMANAGER_URL: ""
 
-  # Infrastructure
-  GITEA_URL: "http://MON1_TAILSCALE_IP:3002"
-  SEARXNG_URL: "http://GCP_MEDIUM_TAILSCALE_IP:8080/search"
+  # Infrastructure (set in nexus-env secret)
+  GITEA_URL: ""
+  SEARXNG_URL: ""
 
   # Agent identity
   AGENT_NAME: "HAL-LOCAL"

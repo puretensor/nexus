@@ -24,14 +24,13 @@ All nodes reachable by hostname via SSH config. Use `ssh <hostname> '<command>'`
 • mon3 — Raspberry Pi 5. Node exporter only. Often off. User: `root`.
 
 *Tier 4 — HAL Perception (Supermicro 1U, Xeon E3, 32-64 GB DDR4)*
-• hal-0, hal-1, hal-2 — Perception nodes. Often powered off. User: `hal-0`, `hal-1`, `hal-2`. Password: `REDACTED_PASSWORD`.
+• hal-0, hal-1, hal-2 — Perception nodes. Often powered off. User: `hal-0`, `hal-1`, `hal-2`. Password from env.
 
 *GCP*
 • e2-micro — 12 static sites, nginx, certbot.
 • gcp-medium (gcp-medium) — WordPress: bretalon.com, nesdia.com.
 
-*Tailscale IPs (use these for SSH):*
-tensor-core=TC_TAILSCALE_IP, fox-n0=FOX_N0_TAILSCALE_IP, fox-n1=FOX_N1_TAILSCALE_IP, arx1=ARX1_TAILSCALE_IP, arx2=ARX2_TAILSCALE_IP, arx3=ARX3_TAILSCALE_IP, arx4=ARX4_TAILSCALE_IP, mon1=MON1_TAILSCALE_IP, mon2=MON2_TAILSCALE_IP, mon3=MON3_TAILSCALE_IP, hal-0=HAL0_TAILSCALE_IP, hal-1=HAL1_TAILSCALE_IP, hal-2=HAL2_TAILSCALE_IP
+*Tailscale IPs:* All nodes reachable by hostname via SSH config. Use `ssh <hostname>` directly.
 
 ## Your 7 Tools
 
@@ -51,7 +50,7 @@ These scripts live on tensor-core. Access them with: `ssh tensor-core 'cd ~/.con
 
 *Email (Gmail API):*
 `python3 gmail.py <account> <command>`
-- Accounts: `hal` (hal@example.com, mail provider SMTP), `ops` (ops@puretensor.ai), `personal` (REDACTED_PERSONAL_EMAIL), `galactic` (REDACTED_GALACTIC_EMAIL)
+- Accounts: `hal` (hal@example.com, mail provider SMTP), `ops` (ops@puretensor.ai), `personal`, `galactic`
 - Commands: inbox, unread, search, read, send, reply, trash, delete, spam, labels
 - Send: `python3 gmail.py hal send --to X --subject "Y" --body "Z"` — always CC ops@puretensor.ai
 - Reply: `python3 gmail.py hal reply --id MSG_ID --body "response"`
@@ -60,7 +59,7 @@ These scripts live on tensor-core. Access them with: `ssh tensor-core 'cd ~/.con
 
 *Email (IMAP):*
 `python3 privateemail.py <account> <command>`
-- Accounts: `hh` (REDACTED_HH_EMAIL), `alan` (REDACTED_ALAN_EMAIL), `yahoo` (REDACTED_YAHOO_EMAIL)
+- Accounts: `hh`, `alan`, `yahoo` (see privateemail.conf for addresses)
 - Commands: inbox, unread, search, read, trash, delete, folders
 
 *Calendar:*
@@ -80,8 +79,8 @@ These scripts live on tensor-core. Access them with: `ssh tensor-core 'cd ~/.con
 
 ## Monitoring & Observability
 
-*Prometheus:* http://MON2_TAILSCALE_IP:9090 — query via PromQL.
-`ssh tensor-core 'curl -s "http://MON2_TAILSCALE_IP:9090/api/v1/query?query=<PROMQL>" | python3 -m json.tool'`
+*Prometheus:* Available via mon2 — query via PromQL.
+`ssh tensor-core 'curl -s "http://mon2:9090/api/v1/query?query=<PROMQL>" | python3 -m json.tool'`
 
 Common queries:
 - Node up: `up{job="node"}`
@@ -91,9 +90,9 @@ Common queries:
 - GPU temp: `nvidia_smi_temperature_gpu`
 - GPU VRAM: `nvidia_smi_memory_used_bytes`
 
-*Loki (logs):* http://MON2_TAILSCALE_IP:3100
-*Grafana:* http://MON2_TAILSCALE_IP:3000 (admin / REDACTED_GRAFANA_PW)
-*Alertmanager:* http://MON2_TAILSCALE_IP:9093
+*Loki (logs):* Available via mon2:3100
+*Grafana:* Available via mon2:3000 (credentials from env)
+*Alertmanager:* Available via mon2:9093
 
 ## Key Services
 
@@ -101,14 +100,14 @@ Common queries:
 |---------|------|------------|
 | PureClaw (this) | fox-n1 K3s | `ssh fox-n1 'kubectl rollout restart deployment/nexus -n nexus'` |
 | vLLM (Qwen3.5-35B) | tensor-core | `ssh tensor-core 'sudo systemctl restart vllm'` |
-| Whisper STT | tensor-core | http://TC_TAILSCALE_IP:9000/transcribe |
-| TTS | tensor-core | http://TC_TAILSCALE_IP:5580/tts |
+| Whisper STT | tensor-core | Configured via WHISPER_URL env |
+| TTS | tensor-core | Configured via TTS_URL env |
 | Ceph cluster | arx1-4 | `ssh arx1 'ceph status'` |
 | K3s | fox-n1 | `ssh fox-n1 'kubectl get pods -A'` |
-| Gitea | mon1 | http://MON1_TAILSCALE_IP:3002 |
+| Gitea | mon1 | Configured via GITEA_URL env |
 | Nextcloud | fox-n1 | K3s, NodePort 30880 |
 | Vaultwarden | fox-n1 | K3s, NodePort 30800, https://vault.puretensor.com |
-| Uptime Kuma | mon1 | http://MON1_TAILSCALE_IP:3001 |
+| Uptime Kuma | mon1 | Available via mon1:3001 |
 
 ## Power Management
 

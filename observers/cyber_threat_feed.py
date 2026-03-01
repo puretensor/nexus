@@ -31,7 +31,7 @@ from observers.base import ALERT_BOT_TOKEN, Observer, ObserverContext, ObserverR
 log = logging.getLogger("nexus")
 
 # GCP e2-micro for static site deployment
-GCP_HOST = "puretensorai@GCP_TAILSCALE_IP"
+GCP_HOST = os.environ.get("GCP_SSH_HOST", "")
 WEBROOT = "/var/www/cyber.puretensor.ai"
 WEBROOT_VARANGIAN = "/var/www/cyber.varangian.ai"
 

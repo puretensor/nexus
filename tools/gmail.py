@@ -36,19 +36,19 @@ CLIENT_SECRET = CONFIG_DIR / 'client_secret.json'
 
 ACCOUNTS = {
     'personal': {
-        'name': 'REDACTED_PERSONAL_EMAIL',
+        'name': os.environ.get('GMAIL_PERSONAL', 'personal@example.com'),
         'token_file': 'gmail_token_personal.json',
-        'description': 'Personal Gmail (UK)'
+        'description': 'Personal Gmail'
     },
     'ops': {
-        'name': 'ops@puretensor.ai',
+        'name': os.environ.get('GMAIL_OPS', 'ops@example.com'),
         'token_file': 'gmail_token_ops.json',
-        'description': 'PureTensorAI Workspace (UK)'
+        'description': 'Ops Workspace'
     },
     'galactic': {
-        'name': 'REDACTED_GALACTIC_EMAIL',
+        'name': os.environ.get('GMAIL_GALACTIC', 'galactic@example.com'),
         'token_file': 'gmail_token_galactic.json',
-        'description': 'Galactic Trading Corp Gmail'
+        'description': 'Trading Corp Gmail'
     }
 }
 
@@ -56,9 +56,8 @@ ACCOUNTS = {
 # Use: python3 gmail.py hal send --to ... --subject ... --body ...
 # account='mail_provider' routes through SMTP instead of Gmail API
 IDENTITY_ALIASES = {
-    'hal': ('mail_provider', 'hal@example.com', 'PureClaw'),      # PureClaw on mail provider
-    'hal-org': ('ops', 'hal@example.com', 'PureClaw'),         # PureClaw as PT Foundation director
-    'heimir': ('ops', 'ops@puretensor.ai', 'REDACTED_NAME'),    # Heimir via ops
+    'hal': ('mail_provider', os.environ.get('HAL_EMAIL', 'hal@example.com'), 'PureClaw'),
+    'hal-org': ('ops', os.environ.get('HAL_ORG_EMAIL', 'hal-org@example.com'), 'PureClaw'),
 }
 
 # Send-as identities (account -> alias -> display name)
@@ -592,7 +591,7 @@ def main():
     parser.add_argument('--body', '-b', help='Email body text (inline)')
     parser.add_argument('--body-file', help='Read email body from file')
     parser.add_argument('--html', action='store_true', help='Body is HTML')
-    parser.add_argument('--from-name', help='Display name override (e.g. "REDACTED_NAME")')
+    parser.add_argument('--from-name', help='Display name override (e.g. "John Smith")')
     parser.add_argument('--from-alias', help='Send As address (e.g. hal@example.com)')
     parser.add_argument('--attachment', action='append', help='File to attach (repeatable)')
 

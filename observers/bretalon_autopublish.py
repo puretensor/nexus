@@ -898,8 +898,8 @@ class BretalonAutoPublishObserver(Observer):
         human subordinate submitted the piece for approval.
         HH gets the full technical spec including council scores and pipeline details.
         """
-        alan_email = os.environ.get("BRETALON_ALAN", "REDACTED_ALAN_EMAIL")
-        hh_email = os.environ.get("BRETALON_HH", "REDACTED_HH_EMAIL")
+        alan_email = os.environ.get("BRETALON_ALAN", "")
+        hh_email = os.environ.get("BRETALON_HH", "")
 
         pub_display = post_info.get("publish_date", "TBD")
         pub_date_only = pub_display.split(" ")[0]

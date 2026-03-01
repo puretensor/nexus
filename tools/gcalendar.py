@@ -36,14 +36,14 @@ DEFAULT_TZ = 'Europe/London'
 
 ACCOUNTS = {
     'personal': {
-        'name': 'REDACTED_PERSONAL_EMAIL',
+        'name': os.environ.get('GMAIL_PERSONAL', 'personal@example.com'),
         'token_file': 'calendar_token_personal.json',
-        'description': 'Personal Gmail (UK)'
+        'description': 'Personal Calendar'
     },
     'ops': {
-        'name': 'ops@puretensor.ai',
+        'name': os.environ.get('GMAIL_OPS', 'ops@example.com'),
         'token_file': 'calendar_token_ops.json',
-        'description': 'PureTensor AI Ltd Workspace (UK)'
+        'description': 'Ops Workspace Calendar'
     }
 }
 

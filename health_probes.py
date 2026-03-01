@@ -15,8 +15,8 @@ import aiohttp
 log = logging.getLogger("nexus")
 
 # Probe config
-_WHISPER_URL = os.environ.get("WHISPER_URL", "http://TC_TAILSCALE_IP:9000/transcribe")
-_TTS_URL = os.environ.get("TTS_URL", "http://TC_TAILSCALE_IP:5580/tts")
+_WHISPER_URL = os.environ.get("WHISPER_URL", "")
+_TTS_URL = os.environ.get("TTS_URL", "")
 _PROBE_INTERVAL = int(os.environ.get("HEALTH_PROBE_INTERVAL", "30"))
 _FAILURE_THRESHOLD = 3
 

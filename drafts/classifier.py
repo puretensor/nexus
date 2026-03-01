@@ -7,6 +7,7 @@ Classifies emails into:
   - followup:   track for follow-up (e.g., waiting for someone's response)
 """
 
+import os
 import re
 import logging
 
@@ -61,11 +62,11 @@ NOTIFY_SUBJECTS = [
     r"verification code",
 ]
 
-# VIP senders that always get auto_reply treatment
+# VIP senders that always get auto_reply treatment (loaded from env or defaults)
 VIP_SENDERS = [
-    "REDACTED_ALAN_EMAIL",
-    "ops@puretensor.ai",
-    "REDACTED_PERSONAL_EMAIL",
+    s.strip() for s in
+    os.environ.get("VIP_SENDERS", "ops@example.com").split(",")
+    if s.strip()
 ]
 
 

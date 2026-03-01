@@ -36,8 +36,8 @@ VOICE_KB_DIR = SYNC_DIR / "voice-kb" / "kb"
 # Output directory (NFS PVC)
 OUTPUT_DIR = Path("/output/daily")
 
-# Google Drive folder ID for 10_Daily_Reports
-DRIVE_FOLDER_ID = "1Wx_dD_ADIBVOIv4cFS9uCYj9ou5kox-T"
+# Google Drive folder ID for daily reports (set via env)
+DRIVE_FOLDER_ID = os.environ.get("DRIVE_DAILY_REPORTS_FOLDER", "")
 DRIVE_TOKEN_PATH = Path.home() / ".config" / "puretensor" / "gdrive_tokens" / "token_ops.json"
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 

@@ -40,7 +40,7 @@ log = logging.getLogger("nexus")
 # topic relevance; council only verifies quality/veracity.
 COUNCIL_THRESHOLD = 6.0
 
-SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://GCP_MEDIUM_TAILSCALE_IP:8080/search")
+SEARXNG_URL = os.environ.get("SEARXNG_URL", "")
 
 QUERY_EXTRACT_PROMPT = """\
 Extract 3 targeted web search queries to fact-check the key claims in this article.

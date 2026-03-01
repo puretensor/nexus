@@ -247,8 +247,8 @@ class TestEmailInputChannel:
 
         fake_email = {
             "id": "vip-msg@test.com",
-            "from": "VIP User <REDACTED_ALAN_EMAIL>",
-            "from_addr": "REDACTED_ALAN_EMAIL",
+            "from": "VIP User <vip-user@example.com>",
+            "from_addr": "vip-user@example.com",
             "subject": "Report feedback",
             "date": "Feb 10 09:00",
             "to": "hal@example.com",
@@ -268,7 +268,7 @@ class TestEmailInputChannel:
         # Should have called bot.send_message with approval buttons (from create_email_draft)
         bot.send_message.assert_called_once()
         call_kwargs = bot.send_message.call_args[1]
-        assert "REDACTED_ALAN_EMAIL" in call_kwargs["text"]
+        assert "vip-user@example.com" in call_kwargs["text"]
         assert call_kwargs["reply_markup"] is not None
 
 

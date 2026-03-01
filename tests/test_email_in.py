@@ -180,8 +180,8 @@ class TestPollOnceClassification:
 
         fake_email = {
             "id": "msg-auto-1",
-            "from": "VIP User <REDACTED_ALAN_EMAIL>",
-            "from_addr": "REDACTED_ALAN_EMAIL",
+            "from": "VIP User <vip-user@example.com>",
+            "from_addr": "vip-user@example.com",
             "subject": "Report feedback",
             "date": "Feb 10 12:00",
             "to": "hal@example.com",
@@ -196,7 +196,7 @@ class TestPollOnceClassification:
 
             mock_create.assert_awaited_once()
             call_kwargs = mock_create.call_args[1]
-            assert call_kwargs["email_from"] == "REDACTED_ALAN_EMAIL"
+            assert call_kwargs["email_from"] == "vip-user@example.com"
             assert call_kwargs["email_subject"] == "Report feedback"
             assert "Thank you" in call_kwargs["draft_body"]
 

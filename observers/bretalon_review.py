@@ -68,7 +68,7 @@ class BretalonReviewObserver(Observer):
 
     @property
     def recipients(self):
-        raw = os.environ.get("BRETALON_TO", "REDACTED_ALAN_EMAIL,REDACTED_HH_EMAIL")
+        raw = os.environ.get("BRETALON_TO", "")
         return [r.strip() for r in raw.split(",") if r.strip()]
 
     # ── State helpers ──────────────────────────────────────────────────────

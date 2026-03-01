@@ -40,7 +40,7 @@ RSS_CONF = Path(os.environ.get(
 ))
 
 # GCP deployment
-GCP_SSH_HOST = "puretensorai@GCP_TAILSCALE_IP"
+GCP_SSH_HOST = os.environ.get("GCP_SSH_HOST", "")
 
 # Ollama config
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")

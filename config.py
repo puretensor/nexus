@@ -51,7 +51,7 @@ OLLAMA_TOOL_TIMEOUT = int(os.environ.get("OLLAMA_TOOL_TIMEOUT", "30"))
 OLLAMA_NUM_PREDICT = int(os.environ.get("OLLAMA_NUM_PREDICT", "8192"))  # thinking models need headroom
 
 # Web search — SearXNG preferred (self-hosted, private), DuckDuckGo fallback (zero config)
-SEARXNG_URL = os.environ.get("SEARXNG_URL", "")  # e.g. http://GCP_MEDIUM_TAILSCALE_IP:8080/search
+SEARXNG_URL = os.environ.get("SEARXNG_URL", "")
 
 # Claude Code CLI
 # (uses claude binary + CLAUDE_BIN/CLAUDE_CWD above)
@@ -77,12 +77,12 @@ AGENT_PERSONALITY = os.environ.get("AGENT_PERSONALITY", "")
 
 # Dispatcher
 WEATHER_DEFAULT_LOCATION = os.environ.get("WEATHER_DEFAULT_LOCATION", "Windsor,UK")
-PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://MON2_TAILSCALE_IP:9090")
+PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "")
 DARWIN_API_TOKEN = os.environ.get("DARWIN_API_TOKEN", "")
 GOLD_API_KEY = os.environ.get("GOLD_API_KEY", "")
 
 # Gitea
-GITEA_URL = os.environ.get("GITEA_URL", "http://MON1_TAILSCALE_IP:3002")
+GITEA_URL = os.environ.get("GITEA_URL", "")
 GITEA_TOKEN = os.environ.get("GITEA_TOKEN", "")
 
 # Daily snippet

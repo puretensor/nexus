@@ -15,7 +15,7 @@ import config
 
 log = logging.getLogger("nexus")
 
-ALERTMANAGER_URL = os.environ.get("ALERTMANAGER_URL", "http://MON2_TAILSCALE_IP:9093")
+ALERTMANAGER_URL = os.environ.get("ALERTMANAGER_URL", "")
 
 
 class AlertmanagerMonitorObserver(Observer):
