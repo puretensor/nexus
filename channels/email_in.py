@@ -303,7 +303,9 @@ class EmailInputChannel(Channel):
             await self._send_notification(em)
             return
 
-        if not reply_body:
+        if not reply_body or result.get("error"):
+            if result.get("error"):
+                log.warning("Email input: Claude returned error for %s: %s", em["from"], reply_body)
             await self._send_notification(em)
             return
 

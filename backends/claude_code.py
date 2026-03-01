@@ -10,7 +10,9 @@ from config import CLAUDE_BIN, CLAUDE_CWD, TIMEOUT
 
 log = logging.getLogger("nexus")
 
-# Strip ANTHROPIC_API_KEY so CLI uses OAuth credentials from ~/.claude/.credentials.json
+# Strip ANTHROPIC_API_KEY so CLI uses OAuth credentials from ~/.claude/.credentials.json.
+# The API key in the env is used by the Anthropic SDK (for non-CLI backends) but is invalid
+# for CLI auth. OAuth tokens are refreshed via K8s secret rotation + init container.
 _CLI_ENV = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
 
 
@@ -72,12 +74,13 @@ class ClaudeCodeBackend:
                 cmd, capture_output=True, text=True, timeout=timeout, cwd=CLAUDE_CWD, env=_CLI_ENV
             )
         except subprocess.TimeoutExpired:
-            return {"result": f"Claude timed out after {timeout}s", "session_id": None}
+            return {"result": f"Claude timed out after {timeout}s", "session_id": None, "error": True}
 
         if result.returncode != 0:
             return {
                 "result": f"Claude error (exit {result.returncode}): {result.stderr[:500]}",
                 "session_id": None,
+                "error": True,
             }
 
         try:
