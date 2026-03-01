@@ -591,6 +591,7 @@ class BretalonAutoPublishObserver(Observer):
                 break
 
         body = "\n".join(lines[body_start:]).strip()
+        body = self._sanitize_body(body)
         word_count = len(body.split())
 
         log.info("bretalon_autopublish: article generated — '%s' (%d words)",
@@ -602,6 +603,24 @@ class BretalonAutoPublishObserver(Observer):
             "body": body,
             "word_count": word_count,
         }
+
+    @staticmethod
+    def _sanitize_body(text: str) -> str:
+        """Remove AI-signature patterns from article text.
+
+        Em dashes (—) are a well-known LLM stylistic tell. Replace them with
+        a comma+space so prose reads naturally without the giveaway.
+        Handles all spacing variants: ' — ', '— ', ' —', '—'.
+        """
+        # Spaced em dash first (most common in formal prose): " — " → ", "
+        text = text.replace(" \u2014 ", ", ")
+        # Trailing: "word— " → "word, "
+        text = text.replace("\u2014 ", ", ")
+        # Leading: " —word" → ", word"
+        text = text.replace(" \u2014", ", ")
+        # Bare (no spaces): "word—word" → "word, word"
+        text = text.replace("\u2014", ", ")
+        return text
 
     # ── Stage 4: AI Council Review ───────────────────────────────────────
 
