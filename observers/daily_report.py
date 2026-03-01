@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Daily report compilation observer.
 
-Runs at 22:30 UTC daily. Gathers CC session reports and voice KB memos
-for today, synthesizes them via Claude into a structured daily report,
-generates a branded PDF, uploads to Google Drive, and sends a summary
-to Telegram.
+Runs at 01:00 UTC daily. Compiles the PREVIOUS day's CC session reports
+and voice KB memos via Claude into a structured daily report, generates
+a branded PDF, uploads to Google Drive, and sends a summary to Telegram.
+
+Running at 01:00 UTC (after midnight) ensures all sessions from the
+previous day have been synced, and avoids US afternoon API congestion
+that caused the 2026-02-28 407-page fallback incident.
 
 Data sources:
   - /sync/reports/cc/{YYYY-MM-DD}*.md  (rsync'd from tensor-core every 15 min)
@@ -17,7 +20,8 @@ import mimetypes
 import os
 import re
 import subprocess
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from observers.base import Observer, ObserverResult
@@ -50,7 +54,15 @@ class DailyReportObserver(Observer):
     """Compiles daily CC reports + voice memos into a branded PDF report."""
 
     name = "daily_report"
-    schedule = "30 22 * * *"  # 22:30 UTC daily
+    schedule = "0 1 * * *"  # 01:00 UTC daily — compiles PREVIOUS day's report
+
+    # Retry config for Claude API
+    MAX_RETRIES = 3
+    RETRY_BASE_DELAY = 10  # seconds, doubles each attempt
+
+    # Content limits for fallback collation
+    MAX_SESSION_CHARS_FALLBACK = 1500  # per session in raw collation
+    MAX_TOTAL_CHARS_FALLBACK = 40000  # total collation text
 
     # -- Data gathering --------------------------------------------------------
 
@@ -142,16 +154,44 @@ class DailyReportObserver(Observer):
 
     # -- Synthesis -------------------------------------------------------------
 
+    def _deduplicate_reports(self, cc_reports: list[dict]) -> list[dict]:
+        """Deduplicate sessions on the same topic, keeping the longest version.
+
+        Prevents the same assessment appearing 3 times (e.g. network fabric
+        assessment had 3 near-identical sessions on 2026-02-28).
+        """
+        by_topic: dict[str, dict] = {}
+        for r in cc_reports:
+            # Normalise topic for grouping: lowercase, strip timestamps/numbers
+            key = re.sub(r'\d+', '', r["topic"].lower()).strip()
+            key = re.sub(r'\s+', ' ', key)
+            if key in by_topic:
+                # Keep the longer version (more complete)
+                if len(r["content"]) > len(by_topic[key]["content"]):
+                    by_topic[key] = r
+            else:
+                by_topic[key] = r
+
+        deduped = list(by_topic.values())
+        if len(deduped) < len(cc_reports):
+            log.info("Deduplicated %d sessions -> %d unique topics",
+                     len(cc_reports), len(deduped))
+        return deduped
+
     def synthesize_report(self, cc_reports: list[dict], voice_memos: list[dict],
                           date_str: str) -> str:
         """Call Claude to synthesize a structured daily report.
 
-        Falls back to raw collation if Claude fails.
+        Retries up to MAX_RETRIES times with exponential backoff.
+        Falls back to smart collation (headers + summaries only) if all retries fail.
         """
+        # Deduplicate overlapping sessions
+        cc_reports = self._deduplicate_reports(cc_reports)
+
         # Build prompt
         parts = [
-            f"Today is {date_str}. Below are all CC session reports and voice memos "
-            "from today's work. Synthesize them into a structured daily operations report.\n",
+            f"Date: {date_str}. Below are all CC session reports and voice memos "
+            "from this day's work. Synthesize them into a structured daily operations report.\n",
         ]
 
         if cc_reports:
@@ -172,7 +212,6 @@ class DailyReportObserver(Observer):
                 if m.get("summary"):
                     header += f" — {m['summary']}"
                 header += f" ({m['filename']}) ---"
-                parts.append(header)
                 parts.append(m["content"])
                 parts.append("")
 
@@ -191,28 +230,128 @@ class DailyReportObserver(Observer):
 
         prompt = "\n".join(parts)
 
-        try:
-            result = self.call_claude(prompt, timeout=120)
-            if result and len(result.strip()) > 100:
-                return result.strip()
-            log.warning("Claude returned insufficient content (%d chars), using raw collation",
-                        len(result) if result else 0)
-        except Exception as e:
-            log.warning("Claude synthesis failed: %s — falling back to raw collation", e)
+        # Retry loop with exponential backoff
+        last_error = None
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                log.info("Claude synthesis attempt %d/%d", attempt, self.MAX_RETRIES)
+                result = self.call_claude(prompt, timeout=180)
+                if result and len(result.strip()) > 100:
+                    return result.strip()
+                log.warning("Claude returned insufficient content (%d chars) on attempt %d",
+                            len(result) if result else 0, attempt)
+                last_error = f"insufficient content ({len(result) if result else 0} chars)"
+            except Exception as e:
+                last_error = str(e)
+                log.warning("Claude synthesis attempt %d failed: %s", attempt, e)
 
+            if attempt < self.MAX_RETRIES:
+                delay = self.RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                log.info("Retrying in %d seconds...", delay)
+                time.sleep(delay)
+
+        log.warning("All %d Claude attempts failed (last: %s) — using smart collation",
+                    self.MAX_RETRIES, last_error)
         return self._raw_collation(cc_reports, voice_memos, date_str)
+
+    @staticmethod
+    def _extract_session_summary(content: str, max_chars: int) -> str:
+        """Extract the most useful parts of a session report for fallback collation.
+
+        Prioritises: frontmatter/metadata, Objective, Results/Summary, Issues,
+        Next Steps sections. Falls back to first N chars if no structure found.
+        """
+        # Priority sections to extract (case-insensitive)
+        priority_headers = [
+            r'(?:^|\n)#+\s*(Objective|Purpose|Goal)',
+            r'(?:^|\n)#+\s*(Results?|Results?\s+Summary|Summary|Overall\s+Summary)',
+            r'(?:^|\n)#+\s*(Issues?\s+(?:Found|Resolved|Encountered)|Issues?\s+&)',
+            r'(?:^|\n)#+\s*(Next\s+Steps?|Recommendations?|Action\s+Items?)',
+            r'(?:^|\n)#+\s*(Key\s+(?:Findings?|Results?|Decisions?))',
+            r'(?:^|\n)\*\*(?:Objective|Results?|Summary|Issues?|Next Steps?)[\s:*]',
+        ]
+
+        # Try to extract structured sections
+        extracted_parts = []
+
+        # Always grab the first few lines (usually has metadata like Date, Node, etc.)
+        lines = content.split("\n")
+        header_lines = []
+        for line in lines[:20]:
+            stripped = line.strip()
+            if stripped.startswith(("- **", "* **", "- Date", "- Node", "- Objective",
+                                    "# ", "## ")):
+                header_lines.append(stripped)
+            elif stripped and not stripped.startswith("```"):
+                header_lines.append(stripped)
+            if len("\n".join(header_lines)) > max_chars // 3:
+                break
+        if header_lines:
+            extracted_parts.append("\n".join(header_lines))
+
+        # Extract priority sections
+        for pattern in priority_headers:
+            matches = list(re.finditer(pattern, content, re.IGNORECASE))
+            for match in matches:
+                start = match.start()
+                # Find the end of this section (next heading or end of content)
+                next_heading = re.search(r'\n#{1,3}\s', content[start + 1:])
+                if next_heading:
+                    end = start + 1 + next_heading.start()
+                else:
+                    end = min(start + max_chars // 2, len(content))
+                section = content[start:end].strip()
+                if section and section not in "\n".join(extracted_parts):
+                    extracted_parts.append(section)
+
+        result = "\n\n".join(extracted_parts)
+
+        # If we got meaningful extracted content, use it
+        if len(result) > 100:
+            if len(result) > max_chars:
+                result = result[:max_chars] + "\n[... truncated ...]"
+            return result
+
+        # Fallback: just use the first N chars
+        if len(content) > max_chars:
+            return content[:max_chars] + "\n[... truncated ...]"
+        return content
 
     def _raw_collation(self, cc_reports: list[dict], voice_memos: list[dict],
                        date_str: str) -> str:
-        """Fallback: concatenate reports raw (same logic as collate_reports.sh)."""
-        parts = [f"Daily Report: {date_str}", f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", ""]
+        """Smart fallback: extract headers + key sections from each session.
+
+        Unlike the old verbatim dump, this caps per-session content and
+        extracts only the most useful sections (objective, results, issues,
+        next steps). This prevents 407-page PDFs when Claude API is unavailable.
+        """
+        parts = [
+            "DAILY REPORT (AUTOMATED COLLATION)",
+            "",
+            f"Date: {date_str}",
+            f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+            "",
+            "NOTE: This report was compiled from session headers and key sections",
+            "because Claude API synthesis was unavailable. Full session reports are",
+            "available in ~/reports/cc/ on tensor-core.",
+            "",
+        ]
 
         if cc_reports:
             parts.append(f"CC SESSION REPORTS ({len(cc_reports)} sessions)")
             parts.append("=" * 50)
+            total_chars = 0
             for r in cc_reports:
+                if total_chars >= self.MAX_TOTAL_CHARS_FALLBACK:
+                    parts.append(f"\n[... remaining sessions omitted — "
+                                 f"total limit {self.MAX_TOTAL_CHARS_FALLBACK} chars reached ...]")
+                    break
+                summary = self._extract_session_summary(
+                    r["content"], self.MAX_SESSION_CHARS_FALLBACK
+                )
                 parts.append(f"\n--- {r['topic']} ({r['filename']}) ---\n")
-                parts.append(r["content"])
+                parts.append(summary)
+                total_chars += len(summary)
 
         if voice_memos:
             parts.append(f"\n\nVOICE MEMOS ({len(voice_memos)} memos)")
@@ -223,7 +362,11 @@ class DailyReportObserver(Observer):
                     header += f" — {m['summary']}"
                 header += f" ({m['filename']}) ---\n"
                 parts.append(header)
-                parts.append(m["content"])
+                # Voice memos are typically short, include full content
+                content = m["content"]
+                if len(content) > 2000:
+                    content = content[:2000] + "\n[... truncated ...]"
+                parts.append(content)
 
         return "\n".join(parts)
 
@@ -516,11 +659,19 @@ class DailyReportObserver(Observer):
     # -- Observer interface ----------------------------------------------------
 
     def run(self, ctx=None) -> ObserverResult:
-        """Execute the daily report pipeline."""
-        now = self.now_utc()
-        date_str = now.strftime("%Y-%m-%d")
+        """Execute the daily report pipeline.
 
-        log.info("Daily report observer starting for %s", date_str)
+        Compiles the PREVIOUS day's report (runs at 01:00 UTC, so yesterday
+        is the complete workday). This ensures all sessions have been synced
+        and avoids API congestion during US afternoon peak hours.
+        """
+        now = self.now_utc()
+        # Compile for yesterday — the observer runs after midnight
+        yesterday = now - timedelta(days=1)
+        date_str = yesterday.strftime("%Y-%m-%d")
+
+        log.info("Daily report observer starting for %s (triggered at %s)",
+                 date_str, now.strftime("%Y-%m-%d %H:%M UTC"))
 
         # Prevent double-runs
         if self._get_last_date() == date_str:
@@ -541,12 +692,13 @@ class DailyReportObserver(Observer):
 
         themes = self._extract_themes(cc_reports)
 
-        # 2. Synthesize report
+        # 2. Synthesize report (includes deduplication and retry logic)
         try:
             report_text = self.synthesize_report(cc_reports, voice_memos, date_str)
         except Exception as e:
             log.error("Report synthesis failed completely: %s", e)
-            report_text = self._raw_collation(cc_reports, voice_memos, date_str)
+            deduped = self._deduplicate_reports(cc_reports)
+            report_text = self._raw_collation(deduped, voice_memos, date_str)
 
         # 3. Generate PDF
         pdf_path = None
@@ -619,13 +771,13 @@ if __name__ == "__main__":
     observer = DailyReportObserver()
 
     # Allow testing with a specific date: python3 daily_report.py 2026-02-28
+    # run() compiles for YESTERDAY, so we set now_utc to test_date + 1 day at 01:00
     if len(sys.argv) > 1:
         test_date = sys.argv[1]
-        # Override now_utc to return the requested date
-        original_now = observer.now_utc
-        observer.now_utc = lambda: datetime.strptime(test_date, "%Y-%m-%d").replace(
-            hour=22, minute=30, tzinfo=timezone.utc
-        )
+        fake_now = datetime.strptime(test_date, "%Y-%m-%d").replace(
+            hour=1, minute=0, tzinfo=timezone.utc
+        ) + timedelta(days=1)
+        observer.now_utc = lambda: fake_now
         # Reset state to allow re-run
         sf = observer._state_file()
         if sf.exists():

@@ -59,7 +59,7 @@ def call_gemini_flash(system_prompt: str, user_prompt: str, timeout: int = 60,
 
 def call_xai_grok(system_prompt: str, user_prompt: str, timeout: int = 60,
                   temperature: float = 0.3, tools: list | None = None) -> str:
-    """Call xAI Grok via Responses API. Returns text content."""
+    """Call xAI Grok via Chat Completions API. Returns text content."""
     api_key = os.environ.get("XAI_API_KEY", "")
     if not api_key:
         raise RuntimeError("XAI_API_KEY not set")
@@ -67,32 +67,28 @@ def call_xai_grok(system_prompt: str, user_prompt: str, timeout: int = 60,
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        "User-Agent": "PureTensor-Nexus/2.0",
     }
     payload = {
         "model": "grok-3-mini-fast",
-        "input": [
+        "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "max_output_tokens": 4096,
+        "max_tokens": 4096,
         "temperature": temperature,
     }
-    if tools:
-        payload["tools"] = tools
 
     data = json.dumps(payload).encode()
-    req = urllib.request.Request("https://api.x.ai/v1/responses",
+    req = urllib.request.Request("https://api.x.ai/v1/chat/completions",
                                 data=data, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         result = json.loads(resp.read().decode())
 
-    content = ""
-    for item in result.get("output", []):
-        if item.get("type") == "message":
-            for c in item.get("content", []):
-                if c.get("type") == "output_text":
-                    content += c.get("text", "")
-    return content.strip()
+    choices = result.get("choices", [])
+    if not choices:
+        return ""
+    return choices[0].get("message", {}).get("content", "").strip()
 
 
 def call_claude_haiku(system_prompt: str, user_prompt: str, timeout: int = 60,
