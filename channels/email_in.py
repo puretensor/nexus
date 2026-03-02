@@ -252,12 +252,17 @@ class EmailInputChannel(Channel):
                 elif classification == "followup":
                     await self._send_notification(em, followup=True)
 
-    async def _send_notification(self, em: dict, followup: bool = False):
+    async def _send_notification(self, em: dict, followup: bool = False, skipped: bool = False):
         """Send a Telegram notification about an email."""
         if not self._bot:
             return
 
-        tag = "FOLLOW-UP" if followup else "EMAIL"
+        if skipped:
+            tag = "SKIPPED"
+        elif followup:
+            tag = "FOLLOW-UP"
+        else:
+            tag = "EMAIL"
         text = (
             f"[{tag}] {em['date']}\n"
             f"From: {em['from']}\n"
@@ -289,10 +294,20 @@ class EmailInputChannel(Channel):
         body_preview = em["body"][:2000] if em.get("body") else "(no body)"
         prompt = (
             f"You are {AGENT_NAME}, an AI agent for PureTensor infrastructure. "
-            "You are replying to an email from a trusted colleague. "
-            "Be concise, professional, and helpful. Use your judgement. "
-            "Sign off as HAL. "
-            "Output ONLY the reply text — no subject line, no greeting header, just the content.\n\n"
+            "You received an email from a trusted colleague. "
+            "First, decide whether this email warrants a reply.\n\n"
+            "DO NOT REPLY (output exactly NO_REPLY) when:\n"
+            "- The email is a simple acknowledgement (thanks, ok, got it, noted, etc.)\n"
+            "- The email is FYI-only with no question or action requested\n"
+            "- The email is a one-word directive that you can silently act on\n"
+            "- Replying would add no value or start a pointless back-and-forth\n\n"
+            "DO REPLY when:\n"
+            "- The email asks a question or requests information\n"
+            "- The email requires confirmation of an action you're taking\n"
+            "- The email initiates a new conversation or task\n"
+            "- The email is ambiguous and a professional acknowledgement would be helpful\n\n"
+            "If you decide to reply: be concise, professional, helpful. Sign off as HAL.\n"
+            "Output ONLY the reply text, or exactly NO_REPLY if no reply is needed.\n\n"
             f"From: {em['from']}\n"
             f"Subject: {em['subject']}\n\n"
             f"{body_preview}"
@@ -305,14 +320,16 @@ class EmailInputChannel(Channel):
             )
             if result.get("error"):
                 raise RuntimeError(result["result"])
-            reply_body = result.get("result", "")
+            reply_body = result.get("result", "").strip()
         except Exception as e:
             log.warning("Email input: Claude draft failed for %s: %s", em["from"], e)
             await self._send_notification(em)
             return
 
-        if not reply_body:
-            await self._send_notification(em)
+        if not reply_body or reply_body == "NO_REPLY":
+            log.info("Email from %s re: %s — no reply needed",
+                     em["from_addr"], em["subject"])
+            await self._send_notification(em, skipped=True)
             return
 
         # Send immediately — no approval gate
