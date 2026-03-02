@@ -50,6 +50,9 @@ data:
   # Memory sync
   SHARED_CONTEXT_PATH: "/data/sync/pureclaw_memory.md"
 
+  # Google Drive
+  DRIVE_DAILY_REPORTS_FOLDER: "1Wx_dD_ADIBVOIv4cFS9uCYj9ou5kox-T"
+
   # Misc
   WEATHER_DEFAULT_LOCATION: "Windsor,UK"
   HEALTH_PROBE_INTERVAL: "30"

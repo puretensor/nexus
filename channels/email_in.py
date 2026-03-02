@@ -135,37 +135,40 @@ def fetch_new_emails(account: dict) -> list[dict]:
 
         results = []
         for uid in uids:
-            # Fetch full message (need body for drafting replies)
-            status, msg_data = conn.fetch(uid, "(BODY.PEEK[])")
-            if status != "OK" or not msg_data or msg_data[0] is None:
-                continue
-
-            raw = msg_data[0][1] if isinstance(msg_data[0], tuple) else msg_data[0]
-            msg = email.message_from_bytes(raw)
-
-            from_raw = _decode_header(msg.get("From", ""))
-            subject = _decode_header(msg.get("Subject", "(no subject)"))
-            date_str = msg.get("Date", "")
-            msg_id = msg.get("Message-ID", f"{uid.decode()}@{server}")
-            to_raw = _decode_header(msg.get("To", ""))
-            body = _get_body(msg)
-
-            # Parse date for display
             try:
-                parsed = email.utils.parsedate_to_datetime(date_str)
-                date_display = parsed.strftime("%b %d %H:%M")
-            except Exception:
-                date_display = date_str[:16] if date_str else "unknown"
+                # Fetch full message (need body for drafting replies)
+                status, msg_data = conn.fetch(uid, "(BODY.PEEK[])")
+                if status != "OK" or not msg_data or msg_data[0] is None:
+                    continue
 
-            results.append({
-                "id": msg_id.strip(),
-                "from": from_raw,
-                "from_addr": _extract_email_addr(from_raw),
-                "subject": subject,
-                "date": date_display,
-                "to": to_raw,
-                "body": body[:5000],  # Cap body size
-            })
+                raw = msg_data[0][1] if isinstance(msg_data[0], tuple) else msg_data[0]
+                msg = email.message_from_bytes(raw)
+
+                from_raw = _decode_header(msg.get("From", ""))
+                subject = _decode_header(msg.get("Subject", "(no subject)"))
+                date_str = msg.get("Date", "")
+                msg_id = msg.get("Message-ID", f"{uid.decode()}@{server}")
+                to_raw = _decode_header(msg.get("To", ""))
+                body = _get_body(msg)
+
+                # Parse date for display
+                try:
+                    parsed = email.utils.parsedate_to_datetime(date_str)
+                    date_display = parsed.strftime("%b %d %H:%M")
+                except Exception:
+                    date_display = date_str[:16] if date_str else "unknown"
+
+                results.append({
+                    "id": msg_id.strip(),
+                    "from": from_raw,
+                    "from_addr": _extract_email_addr(from_raw),
+                    "subject": subject,
+                    "date": date_display,
+                    "to": to_raw,
+                    "body": body[:5000],  # Cap body size
+                })
+            except Exception as e:
+                log.warning("Email input: skipping UID %s: %s", uid.decode(), e)
 
         return results
 
@@ -277,6 +280,7 @@ class EmailInputChannel(Channel):
 
         HAL uses his own judgement for whitelisted senders — no approval needed.
         Telegram gets an informational notification after sending.
+        Routes through engine.call_sync → Claude Code CLI (OAuth).
         """
         import subprocess
         from engine import call_sync
@@ -296,16 +300,18 @@ class EmailInputChannel(Channel):
 
         try:
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, lambda: call_sync(prompt))
+            result = await loop.run_in_executor(
+                None, lambda: call_sync(prompt, model="sonnet", timeout=60)
+            )
+            if result.get("error"):
+                raise RuntimeError(result["result"])
             reply_body = result.get("result", "")
         except Exception as e:
             log.warning("Email input: Claude draft failed for %s: %s", em["from"], e)
             await self._send_notification(em)
             return
 
-        if not reply_body or result.get("error"):
-            if result.get("error"):
-                log.warning("Email input: Claude returned error for %s: %s", em["from"], reply_body)
+        if not reply_body:
             await self._send_notification(em)
             return
 

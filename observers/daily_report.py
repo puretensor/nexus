@@ -16,7 +16,6 @@ Data sources:
 
 import json
 import logging
-import mimetypes
 import os
 import re
 import subprocess
@@ -41,14 +40,216 @@ DRIVE_FOLDER_ID = os.environ.get("DRIVE_DAILY_REPORTS_FOLDER", "")
 DRIVE_TOKEN_PATH = Path.home() / ".config" / "puretensor" / "gdrive_tokens" / "token_ops.json"
 DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
-# PDF styling (matches gen_2026-02-25_parallelism_report.py)
+# PDF styling
 FONT_DIR = "/usr/share/fonts/truetype/dejavu/"
 DARK_BLUE = (26, 60, 110)
 BODY_GREY = (51, 51, 51)
 META_GREY = (85, 85, 85)
 LIGHT_GREY = (119, 119, 119)
+TABLE_BG = (240, 244, 248)
 WHITE = (255, 255, 255)
 
+
+# ---------------------------------------------------------------------------
+# DailyReport PDF class — ported from established gen_*.py template
+# ---------------------------------------------------------------------------
+
+def _make_daily_pdf_class(date_str: str):
+    """Create a DailyReport FPDF subclass with proper header/footer.
+
+    Uses a factory function because fpdf2 requires header/footer to be
+    overridden via subclassing (monkey-patching breaks internal state).
+    The date_str is captured in the closure.
+    """
+    from fpdf import FPDF
+
+    try:
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        date_display = date_obj.strftime("%d %B %Y")
+    except ValueError:
+        date_display = date_str
+
+    doc_title = f"Daily Report \u2014 {date_display}"
+
+    class _PDF(FPDF):
+        def __init__(self):
+            super().__init__()
+            self.add_font("DejaVu", "", os.path.join(FONT_DIR, "DejaVuSans.ttf"), uni=True)
+            self.add_font("DejaVu", "B", os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf"), uni=True)
+            self.add_font("DejaVu", "I", os.path.join(FONT_DIR, "DejaVuSans-Oblique.ttf"), uni=True)
+            self.add_font("DejaVu", "BI", os.path.join(FONT_DIR, "DejaVuSans-BoldOblique.ttf"), uni=True)
+            self.set_auto_page_break(auto=True, margin=20)
+
+        def header(self):
+            if self.page_no() == 1:
+                return
+            self.set_font("DejaVu", "", 8)
+            self.set_text_color(*DARK_BLUE)
+            self.cell(0, 6, doc_title, ln=False)
+            self.cell(0, 6, f"Page {self.page_no()}", align="R", ln=True)
+            self.set_draw_color(*DARK_BLUE)
+            self.line(10, self.get_y(), 200, self.get_y())
+            self.ln(4)
+
+        def footer(self):
+            self.set_y(-15)
+            self.set_font("DejaVu", "I", 8)
+            self.set_text_color(*LIGHT_GREY)
+            self.cell(0, 10, f"PureTensor Inc \u2014 {date_display}", align="C")
+
+    return _PDF(), date_display
+
+
+class DailyReport:
+    """Branded PureTensor daily report PDF renderer.
+
+    Provides semantic methods (h1, h2, h3, body, bullet, bold_bullet,
+    table_header, table_row, cover_page) that produce consistent formatting
+    matching the established manual report template.
+    """
+
+    def __init__(self, date_str: str):
+        """Initialise with a date string in YYYY-MM-DD format."""
+        self._pdf, self.date_display = _make_daily_pdf_class(date_str)
+
+    # -- Delegate page management ------------------------------------------
+
+    def add_page(self):
+        self._pdf.add_page()
+
+    def output(self, path: str):
+        self._pdf.output(path)
+
+    # -- Semantic rendering methods ----------------------------------------
+
+    def h1(self, text: str):
+        """Section heading — 20pt bold dark blue with 0.5pt underline rule."""
+        self._pdf.ln(4)
+        self._pdf.set_font("DejaVu", "B", 20)
+        self._pdf.set_text_color(*DARK_BLUE)
+        self._pdf.cell(0, 12, text, ln=True)
+        self._pdf.set_draw_color(*DARK_BLUE)
+        self._pdf.set_line_width(0.5)
+        self._pdf.line(10, self._pdf.get_y(), 200, self._pdf.get_y())
+        self._pdf.ln(4)
+
+    def h2(self, text: str):
+        """Sub-heading — 14pt bold dark blue."""
+        self._pdf.ln(2)
+        self._pdf.set_font("DejaVu", "B", 14)
+        self._pdf.set_text_color(*DARK_BLUE)
+        self._pdf.cell(0, 9, text, ln=True)
+        self._pdf.ln(2)
+
+    def h3(self, text: str):
+        """Minor heading — 12pt bold dark blue."""
+        self._pdf.ln(1)
+        self._pdf.set_font("DejaVu", "B", 12)
+        self._pdf.set_text_color(*DARK_BLUE)
+        self._pdf.cell(0, 7, text, ln=True)
+        self._pdf.ln(1)
+
+    def body(self, text: str):
+        """Body paragraph — 10pt body grey, multi_cell."""
+        self._pdf.set_font("DejaVu", "", 10)
+        self._pdf.set_text_color(*BODY_GREY)
+        self._pdf.multi_cell(0, 5.5, text)
+        self._pdf.ln(1)
+
+    def bullet(self, text: str):
+        """Simple bullet point."""
+        self._pdf.set_font("DejaVu", "", 10)
+        self._pdf.set_text_color(*BODY_GREY)
+        self._pdf.cell(6, 5.5, "\u2022")
+        self._pdf.multi_cell(0, 5.5, text)
+        self._pdf.ln(0.5)
+
+    def bold_bullet(self, label: str, text: str):
+        """Bullet with bold label followed by normal text."""
+        self._pdf.set_text_color(*BODY_GREY)
+        self._pdf.set_font("DejaVu", "", 10)
+        self._pdf.cell(6, 5.5, "\u2022")
+        self._pdf.set_font("DejaVu", "B", 10)
+        label_w = self._pdf.get_string_width(label + " ")
+        self._pdf.cell(label_w, 5.5, label + " ")
+        self._pdf.set_font("DejaVu", "", 10)
+        self._pdf.multi_cell(0, 5.5, text)
+        self._pdf.ln(0.5)
+
+    def table_header(self, cols: list[str], widths: list[int]):
+        """Dark blue header row for a table."""
+        self._pdf.set_font("DejaVu", "B", 9)
+        self._pdf.set_fill_color(*DARK_BLUE)
+        self._pdf.set_text_color(*WHITE)
+        for i, col in enumerate(cols):
+            self._pdf.cell(widths[i], 7, col, border=1, fill=True, align="C")
+        self._pdf.ln()
+
+    def table_row(self, cols: list[str], widths: list[int], alt: bool = False):
+        """Table data row with optional alternating background."""
+        self._pdf.set_font("DejaVu", "", 9)
+        self._pdf.set_text_color(*BODY_GREY)
+        if alt:
+            self._pdf.set_fill_color(*TABLE_BG)
+        else:
+            self._pdf.set_fill_color(*WHITE)
+        for i, col in enumerate(cols):
+            self._pdf.cell(widths[i], 6, col, border=1, fill=True)
+        self._pdf.ln()
+
+    def cover_page(self, subtitle: str, session_count: int, memo_count: int):
+        """Render the established cover page layout."""
+        self._pdf.add_page()
+
+        # Corporate header
+        self._pdf.set_font("DejaVu", "", 9)
+        self._pdf.set_text_color(*DARK_BLUE)
+        self._pdf.cell(0, 5, "PureTensor Inc", align="R", ln=True)
+        self._pdf.cell(0, 5, "131 Continental Dr, Suite 305", align="R", ln=True)
+        self._pdf.cell(0, 5, "Newark, DE 19713, US", align="R", ln=True)
+        self._pdf.ln(40)
+
+        # Title — 36pt "Daily Report"
+        self._pdf.set_font("DejaVu", "B", 36)
+        self._pdf.set_text_color(*DARK_BLUE)
+        self._pdf.cell(0, 18, "Daily Report", align="C", ln=True)
+        self._pdf.ln(4)
+
+        # Date
+        self._pdf.set_font("DejaVu", "", 18)
+        self._pdf.set_text_color(*META_GREY)
+        self._pdf.cell(0, 12, self.date_display, align="C", ln=True)
+        self._pdf.ln(8)
+
+        # Thematic subtitle
+        if subtitle:
+            self._pdf.set_font("DejaVu", "", 12)
+            self._pdf.set_text_color(*META_GREY)
+            self._pdf.cell(0, 8, subtitle, align="C", ln=True)
+        self._pdf.ln(30)
+
+        # Stats + meta
+        self._pdf.set_font("DejaVu", "", 11)
+        self._pdf.set_text_color(*LIGHT_GREY)
+        gen_time = datetime.now(timezone.utc).strftime("%d %B %Y %H:%M UTC")
+        self._pdf.cell(0, 7, f"Generated: {gen_time}", align="C", ln=True)
+        self._pdf.cell(
+            0, 7,
+            "Primary Node: tensor-core (AMD TR PRO 9975WX, 512 GB, 2\u00d7 RTX PRO 6000)",
+            align="C", ln=True,
+        )
+        self._pdf.cell(
+            0, 7,
+            f"Sessions: {session_count}  |  Voice Memos: {memo_count}",
+            align="C", ln=True,
+        )
+        self._pdf.ln(6)
+        self._pdf.cell(0, 7, "CONFIDENTIAL", align="C", ln=True)
+
+
+# ---------------------------------------------------------------------------
+# Observer
+# ---------------------------------------------------------------------------
 
 class DailyReportObserver(Observer):
     """Compiles daily CC reports + voice memos into a branded PDF report."""
@@ -155,18 +356,12 @@ class DailyReportObserver(Observer):
     # -- Synthesis -------------------------------------------------------------
 
     def _deduplicate_reports(self, cc_reports: list[dict]) -> list[dict]:
-        """Deduplicate sessions on the same topic, keeping the longest version.
-
-        Prevents the same assessment appearing 3 times (e.g. network fabric
-        assessment had 3 near-identical sessions on 2026-02-28).
-        """
+        """Deduplicate sessions on the same topic, keeping the longest version."""
         by_topic: dict[str, dict] = {}
         for r in cc_reports:
-            # Normalise topic for grouping: lowercase, strip timestamps/numbers
             key = re.sub(r'\d+', '', r["topic"].lower()).strip()
             key = re.sub(r'\s+', ' ', key)
             if key in by_topic:
-                # Keep the longer version (more complete)
                 if len(r["content"]) > len(by_topic[key]["content"]):
                     by_topic[key] = r
             else:
@@ -178,27 +373,18 @@ class DailyReportObserver(Observer):
                      len(cc_reports), len(deduped))
         return deduped
 
-    def synthesize_report(self, cc_reports: list[dict], voice_memos: list[dict],
-                          date_str: str) -> str:
-        """Call Claude to synthesize a structured daily report.
-
-        Retries up to MAX_RETRIES times with exponential backoff.
-        Falls back to smart collation (headers + summaries only) if all retries fail.
-        """
-        # Deduplicate overlapping sessions
-        cc_reports = self._deduplicate_reports(cc_reports)
-
-        # Build prompt
+    def _build_json_prompt(self, cc_reports: list[dict], voice_memos: list[dict],
+                           date_str: str) -> str:
+        """Build the Claude prompt requesting structured JSON output."""
         parts = [
             f"Date: {date_str}. Below are all CC session reports and voice memos "
-            "from this day's work. Synthesize them into a structured daily operations report.\n",
+            "from this day's work. Synthesize them into a structured daily report.\n",
         ]
 
         if cc_reports:
             parts.append(f"== CC SESSION REPORTS ({len(cc_reports)} sessions) ==\n")
             for i, r in enumerate(cc_reports, 1):
                 parts.append(f"--- Session {i}: {r['topic']} ({r['filename']}) ---")
-                # Truncate very long reports to fit context
                 content = r["content"]
                 if len(content) > 8000:
                     content = content[:8000] + "\n\n[... truncated ...]"
@@ -210,37 +396,123 @@ class DailyReportObserver(Observer):
             for i, m in enumerate(voice_memos, 1):
                 header = f"--- Memo {i}: {m['timestamp']}"
                 if m.get("summary"):
-                    header += f" — {m['summary']}"
+                    header += f" \u2014 {m['summary']}"
                 header += f" ({m['filename']}) ---"
+                parts.append(header)
                 parts.append(m["content"])
                 parts.append("")
 
-        parts.append(
-            "\nWrite a structured daily report with these sections:\n"
-            "1. EXECUTIVE SUMMARY (2-3 sentences)\n"
-            "2. ACTIVITIES BY THEME (group related work, use clear sub-headings)\n"
-            "3. KEY DECISIONS (bullet list of decisions made today)\n"
-            "4. UNRESOLVED ISSUES (anything left open)\n"
-            "5. VOICE MEMO HIGHLIGHTS (if any memos, summarize key points)\n"
-            "6. NEXT STEPS (actionable items for tomorrow)\n\n"
-            "Be concise but thorough. Use plain text with simple section headers. "
-            "No markdown formatting. Each section header should be on its own line "
-            "in ALL CAPS followed by a blank line."
-        )
+        parts.append("""
+Return a JSON object with EXACTLY this structure (no markdown fences, just raw JSON):
 
-        prompt = "\n".join(parts)
+{
+  "executive_summary": "2-3 sentence summary of the day's work",
+  "subtitle": "Short thematic line, e.g. 'Infrastructure, Security & Commerce'",
+  "activities": [
+    {
+      "theme": "THEME NAME — Short Description",
+      "paragraphs": ["Paragraph 1...", "Paragraph 2..."],
+      "sub_sections": [
+        {"title": "Sub-heading", "paragraphs": ["..."], "bullets": ["..."]}
+      ]
+    }
+  ],
+  "key_decisions": ["Decision 1...", "Decision 2..."],
+  "files_modified": [
+    {"area": "Email/DNS", "files": "Yggdrasil UFW, Postfix relay_domains"}
+  ],
+  "infrastructure_changes": [
+    {"node": "Yggdrasil", "change": "UFW rule added: 25/tcp ALLOW"}
+  ],
+  "fleet_state": [
+    {"label": "UP", "value": "tensor-core, fox-n0, fox-n1, arx1-4, mon1-3"}
+  ],
+  "voice_memo_highlights": ["Highlight 1...", "Highlight 2..."],
+  "unresolved_issues": [
+    {"id": 1, "description": "Issue text..."}
+  ],
+  "next_steps": {
+    "categories": [
+      {"name": "Infrastructure", "items": ["Item 1...", "Item 2..."]}
+    ]
+  }
+}
 
-        # Retry loop with exponential backoff
+Rules:
+- Group related sessions into thematic activities (don't make one activity per session)
+- Be concise but thorough — each paragraph should be substantive, not filler
+- Include concrete details: numbers, file paths, node names, metrics
+- If there are no voice memos, set voice_memo_highlights to an empty array
+- If a section has no data, use an empty array
+- fleet_state should reflect the end-of-day state of the infrastructure
+- files_modified should list actual files/configs changed, grouped by area
+- infrastructure_changes should list node-level changes (new services, config changes, etc.)
+- Return ONLY the JSON object, no explanation text before or after
+""")
+
+        return "\n".join(parts)
+
+    def _parse_json_response(self, response: str) -> dict | None:
+        """Try to parse Claude's response as JSON.
+
+        Handles common issues: markdown fences, leading/trailing text.
+        Returns None if parsing fails.
+        """
+        text = response.strip()
+
+        # Strip markdown code fences if present
+        if text.startswith("```"):
+            # Remove opening fence (```json or ```)
+            first_newline = text.find("\n")
+            if first_newline > 0:
+                text = text[first_newline + 1:]
+            # Remove closing fence
+            if text.rstrip().endswith("```"):
+                text = text.rstrip()[:-3].rstrip()
+
+        # Try to find JSON object boundaries
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            text = text[start:end + 1]
+
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict) and "executive_summary" in data:
+                return data
+            log.warning("JSON parsed but missing expected keys")
+            return None
+        except json.JSONDecodeError as e:
+            log.warning("JSON parse failed: %s", e)
+            return None
+
+    def synthesize_report(self, cc_reports: list[dict], voice_memos: list[dict],
+                          date_str: str) -> dict | str:
+        """Call Claude to synthesize a structured daily report.
+
+        Returns a dict (structured JSON) on success, or a str (plain text
+        from raw collation fallback) if all retries fail.
+        """
+        cc_reports = self._deduplicate_reports(cc_reports)
+        prompt = self._build_json_prompt(cc_reports, voice_memos, date_str)
+
         last_error = None
         for attempt in range(1, self.MAX_RETRIES + 1):
             try:
                 log.info("Claude synthesis attempt %d/%d", attempt, self.MAX_RETRIES)
                 result = self.call_claude(prompt, timeout=180)
                 if result and len(result.strip()) > 100:
-                    return result.strip()
-                log.warning("Claude returned insufficient content (%d chars) on attempt %d",
-                            len(result) if result else 0, attempt)
-                last_error = f"insufficient content ({len(result) if result else 0} chars)"
+                    parsed = self._parse_json_response(result)
+                    if parsed:
+                        log.info("Claude returned valid structured JSON")
+                        return parsed
+                    log.warning("Claude response not valid JSON on attempt %d, "
+                                "will retry", attempt)
+                    last_error = "invalid JSON response"
+                else:
+                    log.warning("Claude returned insufficient content (%d chars) on attempt %d",
+                                len(result) if result else 0, attempt)
+                    last_error = f"insufficient content ({len(result) if result else 0} chars)"
             except Exception as e:
                 last_error = str(e)
                 log.warning("Claude synthesis attempt %d failed: %s", attempt, e)
@@ -250,18 +522,13 @@ class DailyReportObserver(Observer):
                 log.info("Retrying in %d seconds...", delay)
                 time.sleep(delay)
 
-        log.warning("All %d Claude attempts failed (last: %s) — using smart collation",
+        log.warning("All %d Claude attempts failed (last: %s) \u2014 using smart collation",
                     self.MAX_RETRIES, last_error)
         return self._raw_collation(cc_reports, voice_memos, date_str)
 
     @staticmethod
     def _extract_session_summary(content: str, max_chars: int) -> str:
-        """Extract the most useful parts of a session report for fallback collation.
-
-        Prioritises: frontmatter/metadata, Objective, Results/Summary, Issues,
-        Next Steps sections. Falls back to first N chars if no structure found.
-        """
-        # Priority sections to extract (case-insensitive)
+        """Extract the most useful parts of a session report for fallback collation."""
         priority_headers = [
             r'(?:^|\n)#+\s*(Objective|Purpose|Goal)',
             r'(?:^|\n)#+\s*(Results?|Results?\s+Summary|Summary|Overall\s+Summary)',
@@ -271,10 +538,8 @@ class DailyReportObserver(Observer):
             r'(?:^|\n)\*\*(?:Objective|Results?|Summary|Issues?|Next Steps?)[\s:*]',
         ]
 
-        # Try to extract structured sections
         extracted_parts = []
 
-        # Always grab the first few lines (usually has metadata like Date, Node, etc.)
         lines = content.split("\n")
         header_lines = []
         for line in lines[:20]:
@@ -289,12 +554,10 @@ class DailyReportObserver(Observer):
         if header_lines:
             extracted_parts.append("\n".join(header_lines))
 
-        # Extract priority sections
         for pattern in priority_headers:
             matches = list(re.finditer(pattern, content, re.IGNORECASE))
             for match in matches:
                 start = match.start()
-                # Find the end of this section (next heading or end of content)
                 next_heading = re.search(r'\n#{1,3}\s', content[start + 1:])
                 if next_heading:
                     end = start + 1 + next_heading.start()
@@ -306,25 +569,18 @@ class DailyReportObserver(Observer):
 
         result = "\n\n".join(extracted_parts)
 
-        # If we got meaningful extracted content, use it
         if len(result) > 100:
             if len(result) > max_chars:
                 result = result[:max_chars] + "\n[... truncated ...]"
             return result
 
-        # Fallback: just use the first N chars
         if len(content) > max_chars:
             return content[:max_chars] + "\n[... truncated ...]"
         return content
 
     def _raw_collation(self, cc_reports: list[dict], voice_memos: list[dict],
                        date_str: str) -> str:
-        """Smart fallback: extract headers + key sections from each session.
-
-        Unlike the old verbatim dump, this caps per-session content and
-        extracts only the most useful sections (objective, results, issues,
-        next steps). This prevents 407-page PDFs when Claude API is unavailable.
-        """
+        """Smart fallback: extract headers + key sections from each session."""
         parts = [
             "DAILY REPORT (AUTOMATED COLLATION)",
             "",
@@ -343,7 +599,7 @@ class DailyReportObserver(Observer):
             total_chars = 0
             for r in cc_reports:
                 if total_chars >= self.MAX_TOTAL_CHARS_FALLBACK:
-                    parts.append(f"\n[... remaining sessions omitted — "
+                    parts.append(f"\n[... remaining sessions omitted \u2014 "
                                  f"total limit {self.MAX_TOTAL_CHARS_FALLBACK} chars reached ...]")
                     break
                 summary = self._extract_session_summary(
@@ -359,10 +615,9 @@ class DailyReportObserver(Observer):
             for m in voice_memos:
                 header = f"\n--- {m['timestamp']}"
                 if m.get("summary"):
-                    header += f" — {m['summary']}"
+                    header += f" \u2014 {m['summary']}"
                 header += f" ({m['filename']}) ---\n"
                 parts.append(header)
-                # Voice memos are typically short, include full content
                 content = m["content"]
                 if len(content) > 2000:
                     content = content[:2000] + "\n[... truncated ...]"
@@ -372,152 +627,193 @@ class DailyReportObserver(Observer):
 
     # -- PDF generation --------------------------------------------------------
 
-    def generate_pdf(self, report_text: str, date_str: str,
+    def generate_pdf(self, report_data, date_str: str,
                      session_count: int, memo_count: int) -> str:
-        """Generate a branded PureTensor PDF from the report text.
+        """Generate a branded PureTensor PDF.
+
+        report_data can be:
+          - dict: structured JSON from Claude (preferred path)
+          - str: plain text from raw collation fallback
 
         Returns the output file path.
         """
-        from fpdf import FPDF
-
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         output_path = str(OUTPUT_DIR / f"PureTensor_Daily_Report_{date_str}.pdf")
 
-        # Parse date for display
-        try:
-            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-            date_display = date_obj.strftime("%d %B %Y")
-        except ValueError:
-            date_display = date_str
+        if isinstance(report_data, dict):
+            self._render_structured_pdf(report_data, date_str, session_count,
+                                        memo_count, output_path)
+        else:
+            self._render_fallback_pdf(report_data, date_str, session_count,
+                                      memo_count, output_path)
 
-        class DailyPDF(FPDF):
-            def __init__(self, title, footer_date):
-                super().__init__()
-                self.doc_title = title
-                self.footer_date = footer_date
-                self.add_font("DejaVu", "", os.path.join(FONT_DIR, "DejaVuSans.ttf"), uni=True)
-                self.add_font("DejaVu", "B", os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf"), uni=True)
-                self.add_font("DejaVu", "I", os.path.join(FONT_DIR, "DejaVuSans-Oblique.ttf"), uni=True)
-                self.add_font("DejaVu", "BI", os.path.join(FONT_DIR, "DejaVuSans-BoldOblique.ttf"), uni=True)
-                self.set_auto_page_break(auto=True, margin=20)
-
-            def header(self):
-                if self.page_no() == 1:
-                    return
-                self.set_font("DejaVu", "", 8)
-                self.set_text_color(*DARK_BLUE)
-                self.cell(0, 6, self.doc_title, ln=False)
-                self.cell(0, 6, f"Page {self.page_no()}", align="R", ln=True)
-                self.set_draw_color(*DARK_BLUE)
-                self.line(10, self.get_y(), 200, self.get_y())
-                self.ln(4)
-
-            def footer(self):
-                self.set_y(-15)
-                self.set_font("DejaVu", "I", 8)
-                self.set_text_color(*LIGHT_GREY)
-                self.cell(0, 10, f"PureTensor Inc \u2014 Confidential \u2014 {self.footer_date}",
-                          align="C")
-
-        pdf = DailyPDF(f"Daily Operations Report \u2014 {date_display}", date_display)
-
-        # -- Cover page --
-        pdf.add_page()
-
-        # Corporate header
-        pdf.set_font("DejaVu", "", 9)
-        pdf.set_text_color(*DARK_BLUE)
-        pdf.cell(0, 5, "PureTensor Inc", align="R", ln=True)
-        pdf.cell(0, 5, "131 Continental Dr, Suite 305", align="R", ln=True)
-        pdf.cell(0, 5, "Newark, DE 19713, US", align="R", ln=True)
-        pdf.ln(30)
-
-        # Title
-        pdf.set_font("DejaVu", "B", 28)
-        pdf.set_text_color(*DARK_BLUE)
-        pdf.cell(0, 14, "Daily Operations Report", align="C", ln=True)
-        pdf.ln(4)
-
-        # Date
-        pdf.set_font("DejaVu", "", 16)
-        pdf.set_text_color(*META_GREY)
-        pdf.cell(0, 10, date_display, align="C", ln=True)
-        pdf.ln(6)
-
-        # Divider
-        pdf.set_draw_color(*DARK_BLUE)
-        pdf.set_line_width(0.8)
-        pdf.line(60, pdf.get_y(), 150, pdf.get_y())
-        pdf.ln(12)
-
-        # Stats
-        pdf.set_font("DejaVu", "B", 36)
-        pdf.set_text_color(*DARK_BLUE)
-        pdf.cell(95, 18, str(session_count), align="C")
-        pdf.cell(95, 18, str(memo_count), align="C", ln=True)
-        pdf.set_font("DejaVu", "", 12)
-        pdf.set_text_color(*META_GREY)
-        pdf.cell(95, 7, "Sessions", align="C")
-        pdf.cell(95, 7, "Voice Memos", align="C", ln=True)
-        pdf.ln(20)
-
-        # Meta
-        pdf.set_font("DejaVu", "", 10)
-        pdf.set_text_color(*LIGHT_GREY)
-        pdf.cell(0, 6, f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
-                 align="C", ln=True)
-        pdf.cell(0, 6, "Classification: Internal \u2014 Operations", align="C", ln=True)
-        pdf.ln(6)
-        pdf.set_font("DejaVu", "B", 10)
-        pdf.set_text_color(*DARK_BLUE)
-        pdf.cell(0, 6, "CONFIDENTIAL", align="C", ln=True)
-
-        # -- Content pages --
-        pdf.add_page()
-
-        # Parse report into sections and render
-        lines = report_text.split("\n")
-        for line in lines:
-            stripped = line.strip()
-
-            # Section headers (ALL CAPS lines, possibly numbered)
-            if stripped and re.match(r'^(\d+\.\s*)?[A-Z][A-Z\s&\-:]+$', stripped) and len(stripped) < 80:
-                pdf.ln(4)
-                pdf.set_font("DejaVu", "B", 14)
-                pdf.set_text_color(*DARK_BLUE)
-                pdf.cell(0, 9, stripped, ln=True)
-                pdf.set_draw_color(*DARK_BLUE)
-                pdf.set_line_width(0.3)
-                pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-                pdf.ln(3)
-            # Sub-headers (Title Case, shorter)
-            elif stripped and not stripped.startswith(("-", "*", "\u2022")) and stripped == stripped.title() and len(stripped) < 60 and len(stripped) > 3:
-                pdf.ln(2)
-                pdf.set_font("DejaVu", "B", 11)
-                pdf.set_text_color(*DARK_BLUE)
-                pdf.cell(0, 7, stripped, ln=True)
-                pdf.ln(1)
-            # Bullet points
-            elif stripped.startswith(("-", "*", "\u2022")):
-                text = stripped.lstrip("-*\u2022 ")
-                pdf.set_font("DejaVu", "", 10)
-                pdf.set_text_color(*BODY_GREY)
-                pdf.cell(8)
-                pdf.multi_cell(0, 5.5, f"\u2022  {text}")
-                pdf.ln(1)
-            # Empty lines
-            elif not stripped:
-                pdf.ln(3)
-            # Body text
-            else:
-                pdf.set_font("DejaVu", "", 10)
-                pdf.set_text_color(*BODY_GREY)
-                pdf.multi_cell(0, 5.5, stripped)
-                pdf.ln(1)
-
-        pdf.output(output_path)
         log.info("PDF generated: %s", output_path)
         return output_path
+
+    def _render_structured_pdf(self, data: dict, date_str: str,
+                                session_count: int, memo_count: int,
+                                output_path: str):
+        """Render structured JSON report data into a branded PDF."""
+        pdf = DailyReport(date_str)
+
+        # Cover page
+        subtitle = data.get("subtitle", "")
+        pdf.cover_page(subtitle, session_count, memo_count)
+
+        # Start content
+        pdf.add_page()
+        section_num = 1
+
+        # 1. Executive Summary
+        pdf.h1(f"{section_num}. Executive Summary")
+        pdf.body(data.get("executive_summary", "No summary available."))
+        section_num += 1
+
+        # 2-N. Activities by Theme
+        for activity in data.get("activities", []):
+            theme = activity.get("theme", "Activity")
+            pdf.h1(f"{section_num}. {theme}")
+            for para in activity.get("paragraphs", []):
+                pdf.body(para)
+            for sub in activity.get("sub_sections", []):
+                pdf.h2(sub.get("title", ""))
+                for para in sub.get("paragraphs", []):
+                    pdf.body(para)
+                for b in sub.get("bullets", []):
+                    pdf.bullet(b)
+            section_num += 1
+
+        # Key Decisions
+        decisions = data.get("key_decisions", [])
+        if decisions:
+            pdf.h1(f"{section_num}. Key Decisions")
+            for d in decisions:
+                pdf.bullet(d)
+            section_num += 1
+
+        # Files Modified (table)
+        files_modified = data.get("files_modified", [])
+        if files_modified:
+            pdf.h1(f"{section_num}. Files Modified")
+            widths = [55, 135]
+            pdf.table_header(["Area", "Files"], widths)
+            for i, fm in enumerate(files_modified):
+                pdf.table_row(
+                    [fm.get("area", ""), fm.get("files", "")],
+                    widths, alt=(i % 2 == 1),
+                )
+            section_num += 1
+
+        # Infrastructure Changes
+        infra_changes = data.get("infrastructure_changes", [])
+        if infra_changes:
+            pdf.h1(f"{section_num}. Infrastructure Changes")
+            for ic in infra_changes:
+                pdf.bold_bullet(
+                    f"{ic.get('node', 'Unknown')}:",
+                    ic.get("change", ""),
+                )
+            section_num += 1
+
+        # Fleet State
+        fleet_state = data.get("fleet_state", [])
+        if fleet_state:
+            pdf.h1(f"{section_num}. Fleet State (End of Day)")
+            for fs in fleet_state:
+                pdf.bold_bullet(f"{fs.get('label', '')}:", fs.get("value", ""))
+            section_num += 1
+
+        # Voice Memo Highlights
+        voice_highlights = data.get("voice_memo_highlights", [])
+        if voice_highlights:
+            pdf.h1(f"{section_num}. Voice Memo Highlights")
+            for vh in voice_highlights:
+                pdf.bullet(vh)
+            section_num += 1
+
+        # Unresolved Issues
+        issues = data.get("unresolved_issues", [])
+        if issues:
+            pdf.h1(f"{section_num}. Unresolved Issues")
+            for issue in issues:
+                issue_id = issue.get("id", "")
+                desc = issue.get("description", "")
+                if issue_id:
+                    pdf.bold_bullet(f"{issue_id}.", desc)
+                else:
+                    pdf.bullet(desc)
+            section_num += 1
+
+        # Next Steps
+        next_steps = data.get("next_steps", {})
+        categories = next_steps.get("categories", []) if isinstance(next_steps, dict) else []
+        if categories:
+            pdf.h1(f"{section_num}. Next Steps")
+            for cat in categories:
+                cat_name = cat.get("name", "")
+                if cat_name:
+                    pdf.h2(cat_name)
+                for item in cat.get("items", []):
+                    pdf.bullet(item)
+
+        pdf.output(output_path)
+
+    def _render_fallback_pdf(self, text: str, date_str: str,
+                              session_count: int, memo_count: int,
+                              output_path: str):
+        """Render plain-text fallback through the DailyReport class.
+
+        Produces a cleaner result than the old line-by-line regex parser
+        by using the semantic rendering methods.
+        """
+        pdf = DailyReport(date_str)
+        pdf.cover_page("Automated Collation (API Unavailable)", session_count, memo_count)
+
+        pdf.add_page()
+
+        # Split into sections by common separators
+        lines = text.split("\n")
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+
+            # Section divider (=== lines)
+            if line and all(c == "=" for c in line):
+                i += 1
+                continue
+
+            # ALL CAPS header (possibly numbered)
+            if (line and re.match(r'^(\d+\.\s*)?[A-Z][A-Z\s&\-:,()]+$', line)
+                    and 3 < len(line) < 80):
+                pdf.h1(line)
+                i += 1
+                continue
+
+            # Sub-header with --- prefix/suffix
+            if line.startswith("---") and line.endswith("---"):
+                title = line.strip("- ").strip()
+                if title:
+                    pdf.h2(title)
+                i += 1
+                continue
+
+            # Bullet points
+            if line.startswith(("-", "*", "\u2022")) and len(line) > 2:
+                bullet_text = line.lstrip("-*\u2022 ")
+                pdf.bullet(bullet_text)
+                i += 1
+                continue
+
+            # Empty lines
+            if not line:
+                i += 1
+                continue
+
+            # Body text
+            pdf.body(line)
+            i += 1
+
+        pdf.output(output_path)
 
     # -- Google Drive upload ---------------------------------------------------
 
@@ -526,6 +822,10 @@ class DailyReportObserver(Observer):
 
         Returns the web view link, or None on failure.
         """
+        if not DRIVE_FOLDER_ID:
+            log.warning("DRIVE_DAILY_REPORTS_FOLDER not set, skipping Drive upload")
+            return None
+
         try:
             from google.auth.transport.requests import Request
             from google.oauth2.credentials import Credentials
@@ -543,7 +843,6 @@ class DailyReportObserver(Observer):
             creds = Credentials.from_authorized_user_file(str(DRIVE_TOKEN_PATH), DRIVE_SCOPES)
             if creds.expired and creds.refresh_token:
                 creds.refresh(Request())
-                # Save refreshed token
                 DRIVE_TOKEN_PATH.write_text(creds.to_json())
 
             service = build("drive", "v3", credentials=creds)
@@ -659,14 +958,8 @@ class DailyReportObserver(Observer):
     # -- Observer interface ----------------------------------------------------
 
     def run(self, ctx=None) -> ObserverResult:
-        """Execute the daily report pipeline.
-
-        Compiles the PREVIOUS day's report (runs at 01:00 UTC, so yesterday
-        is the complete workday). This ensures all sessions have been synced
-        and avoids API congestion during US afternoon peak hours.
-        """
+        """Execute the daily report pipeline."""
         now = self.now_utc()
-        # Compile for yesterday — the observer runs after midnight
         yesterday = now - timedelta(days=1)
         date_str = yesterday.strftime("%Y-%m-%d")
 
@@ -692,25 +985,23 @@ class DailyReportObserver(Observer):
 
         themes = self._extract_themes(cc_reports)
 
-        # 2. Synthesize report (includes deduplication and retry logic)
+        # 2. Synthesize report (returns dict on success, str on fallback)
         try:
-            report_text = self.synthesize_report(cc_reports, voice_memos, date_str)
+            report_data = self.synthesize_report(cc_reports, voice_memos, date_str)
         except Exception as e:
             log.error("Report synthesis failed completely: %s", e)
             deduped = self._deduplicate_reports(cc_reports)
-            report_text = self._raw_collation(deduped, voice_memos, date_str)
+            report_data = self._raw_collation(deduped, voice_memos, date_str)
 
         # 3. Generate PDF
         pdf_path = None
         try:
-            pdf_path = self.generate_pdf(report_text, date_str, session_count, memo_count)
+            pdf_path = self.generate_pdf(report_data, date_str, session_count, memo_count)
         except Exception as e:
             log.error("PDF generation failed: %s", e)
-            # Send text-only fallback
             self.send_telegram(
                 f"Daily Report ({date_str}) - PDF generation failed: {e}\n\n"
-                f"Sessions: {session_count}, Memos: {memo_count}\n\n"
-                f"{report_text[:3500]}"
+                f"Sessions: {session_count}, Memos: {memo_count}"
             )
             self._set_last_date(date_str)
             return ObserverResult(

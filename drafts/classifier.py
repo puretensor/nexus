@@ -84,6 +84,10 @@ def classify_email(from_addr: str, subject: str, to_addr: str = "") -> str:
     from_lower = from_addr.lower()
     subject_lower = subject.lower()
 
+    # Never reply to ourselves (prevents self-reply loops)
+    if "hal@example.com" in from_lower:
+        return "ignore"
+
     # Check ignore rules FIRST (noreply, mailer-daemon, etc.)
     for pattern in IGNORE_SENDERS:
         if pattern in from_lower:

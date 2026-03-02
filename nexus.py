@@ -46,6 +46,7 @@ def _build_observer_registry():
         ("observers.intel_deep_analysis", "IntelDeepAnalysisObserver"),
         ("observers.memory_sync", "MemorySyncObserver"),
         ("observers.daily_report", "DailyReportObserver"),
+        ("observers.pipeline_watchdog", "PipelineWatchdog"),
         ("observers.bretalon_autopublish", "BretalonAutoPublishObserver"),
         ("observers.bretalon_autopublish", "BretalonReplyObserver"),
     ]
