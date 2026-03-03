@@ -191,6 +191,78 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "make_phone_call",
+            "description": (
+                "Make an outbound phone call via HAL. Use for booking/cancelling "
+                "appointments, calling businesses for information, or routine phone "
+                "tasks. HAL introduces himself as Heimir's personal assistant. "
+                "Returns the call transcript and outcome when the call completes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "phone_number": {
+                        "type": "string",
+                        "description": "Phone number in E.164 format (+44...)",
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "description": "What the call is about: book_appointment, cancel_appointment, inquiry, or test",
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Key details for the call: names, dates, preferences, account numbers, specific questions to ask",
+                    },
+                    "voice": {
+                        "type": "string",
+                        "description": "Voice to use: 'hal' (default) or 'heimir'",
+                    },
+                },
+                "required": ["phone_number", "purpose"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "einherjar_dispatch",
+            "description": (
+                "Dispatch a task to the EINHERJAR specialist agent swarm. "
+                "EINHERJAR agents are expert domain specialists — use them for complex "
+                "legal (UK/US corporate law, contracts, governance), financial (audit, "
+                "compliance), or engineering tasks requiring specialist knowledge. "
+                "Each agent runs a 3-model council (Primary + Grounding + Critic) for "
+                "rigorous, cross-verified answers. Returns the final synthesised response "
+                "plus optional council breakdown. "
+                "Available agents: odin (researcher), bragi (creative), mimir (data analyst), "
+                "sigyn (executor), hermod (communicator), idunn (infra guardian), "
+                "forseti (strategist), tyr (UK law), domar (US law), runa (UK counsel), "
+                "eira (US counsel), var (UK audit), snotra (US audit)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "description": "The task or question to dispatch. Be specific and complete.",
+                    },
+                    "agent": {
+                        "type": "string",
+                        "description": (
+                            "Optional: codename of the specific agent to use "
+                            "(odin, bragi, mimir, sigyn, hermod, idunn, forseti, "
+                            "tyr, domar, runa, eira, var, snotra). "
+                            "Omit for automatic routing by keyword matching."
+                        ),
+                    },
+                },
+                "required": ["task"],
+            },
+        },
+    },
 ]
 
 
@@ -507,6 +579,110 @@ def _parse_ddg_html(raw_html: str, max_results: int) -> list[dict]:
     return results
 
 
+def _exec_einherjar_dispatch(args: dict, **_kwargs) -> tuple[str, list[str]]:
+    """Dispatch a task to the EINHERJAR specialist agent swarm."""
+    task = args.get("task", "").strip()
+    if not task:
+        return "Error: no task provided", []
+
+    agent = args.get("agent")
+    einherjar_url = os.environ.get("EINHERJAR_URL", "http://einherjar.einherjar.svc.cluster.local:8080")
+    log.info("Tool einherjar_dispatch: agent=%s task=%s", agent or "auto", task[:80])
+
+    payload = json.dumps({"task": task, "agent": agent})
+    try:
+        req = urllib.request.Request(
+            f"{einherjar_url}/dispatch",
+            data=payload.encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read().decode())
+    except urllib.error.URLError as e:
+        return f"Error: EINHERJAR service unreachable at {einherjar_url}: {e}", []
+    except Exception as e:
+        return f"Error dispatching to EINHERJAR: {e}", []
+
+    agent_name = result.get("agent", "unknown")
+    elapsed = result.get("elapsed_seconds", 0)
+    errors = result.get("errors", [])
+    final = result.get("final_response", "")
+
+    lines = [f"[EINHERJAR/{agent_name.upper()}] ({elapsed:.1f}s)"]
+    if errors:
+        lines.append(f"Warnings: {'; '.join(errors)}")
+    lines.append("")
+    lines.append(final)
+
+    return _truncate("\n".join(lines)), []
+
+
+def _exec_make_phone_call(args: dict, **_kwargs) -> tuple[str, list[str]]:
+    """Make an outbound phone call via HAL Phone service on fox-n0."""
+    phone_number = args.get("phone_number", "").strip()
+    purpose = args.get("purpose", "inquiry")
+    context = args.get("context", "")
+    voice = args.get("voice", "hal")
+
+    if not phone_number:
+        return "Error: no phone_number provided", []
+    if not phone_number.startswith("+"):
+        return "Error: phone_number must be in E.164 format (+44...)", []
+
+    hal_phone_url = os.environ.get("HAL_PHONE_URL", "http://REDACTED_TAILSCALE_IP:5590")
+    log.info("Tool make_phone_call: %s (purpose=%s)", phone_number, purpose)
+
+    # Initiate call with wait=true (blocks until call completes, up to 5 min)
+    payload = json.dumps({
+        "phone_number": phone_number,
+        "purpose": purpose,
+        "context": context,
+        "voice": voice,
+        "wait": True,
+    })
+
+    try:
+        req = urllib.request.Request(
+            f"{hal_phone_url}/call",
+            data=payload.encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=330) as resp:
+            result = json.loads(resp.read().decode())
+    except urllib.error.URLError as e:
+        return f"Error: HAL Phone service unreachable: {e}", []
+    except Exception as e:
+        return f"Error making phone call: {e}", []
+
+    # Format the result
+    status = result.get("status", "unknown")
+    call_id = result.get("call_id", "?")
+    outcome = result.get("outcome", "unknown")
+    duration = result.get("duration_secs", 0)
+    transcript = result.get("transcript", [])
+
+    output_lines = [
+        f"Call {call_id}: {status}",
+        f"Outcome: {outcome}",
+        f"Duration: {duration}s",
+        "",
+        "Transcript:",
+    ]
+    if isinstance(transcript, list):
+        for msg in transcript:
+            role = msg.get("role", "?").upper()
+            content = msg.get("content", "")
+            output_lines.append(f"  [{role}] {content}")
+    elif isinstance(transcript, str):
+        output_lines.append(f"  {transcript}")
+    else:
+        output_lines.append("  (no transcript)")
+
+    return _truncate("\n".join(output_lines)), []
+
+
 # ---------------------------------------------------------------------------
 # Executor dispatch
 # ---------------------------------------------------------------------------
@@ -519,6 +695,8 @@ _EXECUTORS = {
     "glob": _exec_glob,
     "grep": _exec_grep,
     "web_search": _exec_web_search,
+    "make_phone_call": _exec_make_phone_call,
+    "einherjar_dispatch": _exec_einherjar_dispatch,
 }
 
 
@@ -579,6 +757,12 @@ def _format_tool_status(tool_name: str, tool_input: dict) -> str:
         return f"Searching content: {tool_input.get('pattern', '?')}"
     elif tool_name in ("WebSearch", "web_search"):
         return f"Searching web: {tool_input.get('query', '?')}"
+    elif tool_name == "make_phone_call":
+        return f"Calling: {tool_input.get('phone_number', '?')}"
+    elif tool_name == "einherjar_dispatch":
+        agent = tool_input.get("agent") or "auto"
+        task = tool_input.get("task", "?")[:60]
+        return f"EINHERJAR [{agent}]: {task}"
     return f"Tool: {tool_name}"
 
 

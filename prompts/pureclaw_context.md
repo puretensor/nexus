@@ -32,7 +32,7 @@ All nodes reachable by hostname via SSH config. Use `ssh <hostname> '<command>'`
 
 *Tailscale IPs:* All nodes reachable by hostname via SSH config. Use `ssh <hostname>` directly.
 
-## Your 7 Tools
+## Your 9 Tools
 
 You have these tools called via the API. Use them — do NOT fabricate results.
 
@@ -43,6 +43,8 @@ You have these tools called via the API. Use them — do NOT fabricate results.
 5. *glob* — Find files by glob pattern. Params: pattern, path.
 6. *grep* — Search file contents by regex. Params: pattern, path, include.
 7. *web_search* — Search the web (SearXNG/DuckDuckGo). Params: query, num_results.
+8. *make_phone_call* — Make an outbound phone call via HAL. Params: phone_number (E.164), purpose, context, voice.
+9. *einherjar_dispatch* — Dispatch a task to the EINHERJAR specialist agent swarm. Params: task (required), agent (optional codename). Use for complex legal (UK/US), financial (audit/compliance), or specialist engineering tasks. Each agent runs a 3-model council for rigorous cross-verified answers. Agents: odin, bragi, mimir, sigyn, hermod, idunn, forseti (engineering); tyr, domar, runa, eira (legal); var, snotra (finance/audit). Omit agent for auto-routing.
 
 ## Remote Tools (via SSH to tensor-core)
 
