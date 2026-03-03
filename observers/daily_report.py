@@ -486,44 +486,101 @@ Rules:
             log.warning("JSON parse failed: %s", e)
             return None
 
+    # LLM providers for synthesis (tried in order)
+    SYNTHESIS_PROVIDERS = [
+        {
+            "name": "DeepSeek",
+            "env_key": "DEEPSEEK_API_KEY",
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+        },
+        {
+            "name": "xAI Grok",
+            "env_key": "XAI_API_KEY",
+            "base_url": "https://api.x.ai/v1",
+            "model": "grok-3-mini",
+        },
+    ]
+
+    def _call_openai_compat(self, prompt: str, provider: dict, timeout: int = 180) -> str:
+        """Call an OpenAI-compatible API endpoint for synthesis.
+
+        Uses the openai SDK with custom base_url. Returns the response text.
+        Raises on failure.
+        """
+        from openai import OpenAI
+
+        api_key = os.environ.get(provider["env_key"], "")
+        if not api_key:
+            raise ValueError(f"{provider['name']}: {provider['env_key']} not set")
+
+        client = OpenAI(
+            api_key=api_key,
+            base_url=provider["base_url"],
+            timeout=timeout,
+        )
+
+        response = client.chat.completions.create(
+            model=provider["model"],
+            messages=[
+                {"role": "system", "content": (
+                    "You are a technical report synthesizer for PureTensor Inc. "
+                    "You produce structured JSON daily reports from raw session logs "
+                    "and voice memos. Return ONLY valid JSON, no markdown fences, "
+                    "no explanation text."
+                )},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+            max_tokens=8192,
+        )
+
+        return response.choices[0].message.content or ""
+
     def synthesize_report(self, cc_reports: list[dict], voice_memos: list[dict],
                           date_str: str) -> dict | str:
-        """Call Claude to synthesize a structured daily report.
+        """Synthesize a structured daily report using available LLM providers.
 
+        Tries each provider in SYNTHESIS_PROVIDERS order (DeepSeek, xAI).
         Returns a dict (structured JSON) on success, or a str (plain text
-        from raw collation fallback) if all retries fail.
+        from raw collation fallback) if all providers fail.
         """
         cc_reports = self._deduplicate_reports(cc_reports)
         prompt = self._build_json_prompt(cc_reports, voice_memos, date_str)
 
         last_error = None
-        for attempt in range(1, self.MAX_RETRIES + 1):
-            try:
-                log.info("Claude synthesis attempt %d/%d", attempt, self.MAX_RETRIES)
-                result = self.call_claude(prompt, timeout=180)
-                if result and len(result.strip()) > 100:
-                    parsed = self._parse_json_response(result)
-                    if parsed:
-                        log.info("Claude returned valid structured JSON")
-                        return parsed
-                    log.warning("Claude response not valid JSON on attempt %d, "
-                                "will retry", attempt)
-                    last_error = "invalid JSON response"
-                else:
-                    log.warning("Claude returned insufficient content (%d chars) on attempt %d",
-                                len(result) if result else 0, attempt)
-                    last_error = f"insufficient content ({len(result) if result else 0} chars)"
-            except Exception as e:
-                last_error = str(e)
-                log.warning("Claude synthesis attempt %d failed: %s", attempt, e)
 
-            if attempt < self.MAX_RETRIES:
-                delay = self.RETRY_BASE_DELAY * (2 ** (attempt - 1))
-                log.info("Retrying in %d seconds...", delay)
-                time.sleep(delay)
+        for provider in self.SYNTHESIS_PROVIDERS:
+            for attempt in range(1, self.MAX_RETRIES + 1):
+                try:
+                    log.info("%s synthesis attempt %d/%d",
+                             provider["name"], attempt, self.MAX_RETRIES)
+                    result = self._call_openai_compat(prompt, provider)
+                    if result and len(result.strip()) > 100:
+                        parsed = self._parse_json_response(result)
+                        if parsed:
+                            log.info("%s returned valid structured JSON", provider["name"])
+                            return parsed
+                        log.warning("%s response not valid JSON on attempt %d",
+                                    provider["name"], attempt)
+                        last_error = f"{provider['name']}: invalid JSON"
+                    else:
+                        log.warning("%s returned insufficient content (%d chars)",
+                                    provider["name"], len(result) if result else 0)
+                        last_error = f"{provider['name']}: insufficient content"
+                except Exception as e:
+                    last_error = f"{provider['name']}: {e}"
+                    log.warning("%s attempt %d failed: %s", provider["name"], attempt, e)
 
-        log.warning("All %d Claude attempts failed (last: %s) \u2014 using smart collation",
-                    self.MAX_RETRIES, last_error)
+                if attempt < self.MAX_RETRIES:
+                    delay = self.RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                    log.info("Retrying %s in %d seconds...", provider["name"], delay)
+                    time.sleep(delay)
+
+            log.warning("All %d %s attempts failed, trying next provider",
+                        self.MAX_RETRIES, provider["name"])
+
+        log.warning("All providers failed (last: %s) \u2014 using smart collation", last_error)
         return self._raw_collation(cc_reports, voice_memos, date_str)
 
     @staticmethod
