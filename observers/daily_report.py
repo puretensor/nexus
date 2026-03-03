@@ -1177,14 +1177,40 @@ Rules:
         themes = self._extract_themes(cc_reports)
 
         # 2. Synthesize report (returns dict on success, str on fallback)
+        synthesis_ok = False
         try:
             report_data = self.synthesize_report(cc_reports, voice_memos, date_str)
+            synthesis_ok = isinstance(report_data, dict)
         except Exception as e:
             log.error("Report synthesis failed completely: %s", e)
             deduped = self._deduplicate_reports(cc_reports)
             report_data = self._raw_collation(deduped, voice_memos, date_str)
 
-        # 3. Generate PDF
+        # QUALITY GATE: Never publish a raw collation dump to Drive or Telegram.
+        # If synthesis failed, alert and hold locally — do NOT upload garbage.
+        if not synthesis_ok:
+            log.warning("Synthesis failed — raw collation only. Will NOT upload to Drive.")
+            self.send_telegram(
+                f"DAILY REPORT ALERT — {date_str}\n\n"
+                f"Synthesis FAILED (all providers down). "
+                f"Raw fallback PDF saved locally but NOT uploaded to Drive.\n\n"
+                f"Sessions: {session_count} | Memos: {memo_count}\n"
+                f"Action required: re-run manually once API is available."
+            )
+            # Still generate local PDF for manual recovery
+            try:
+                pdf_path = self.generate_pdf(report_data, date_str, session_count, memo_count)
+                log.info("Fallback PDF saved locally: %s", pdf_path)
+            except Exception as e:
+                log.error("Even fallback PDF generation failed: %s", e)
+            # Do NOT mark as compiled — allows automatic retry next run
+            return ObserverResult(
+                success=False,
+                error="Synthesis failed, raw fallback held locally",
+                message=f"Report for {date_str} NOT published — synthesis unavailable",
+            )
+
+        # 3. Generate PDF (structured data only — quality guaranteed)
         pdf_path = None
         try:
             pdf_path = self.generate_pdf(report_data, date_str, session_count, memo_count)
