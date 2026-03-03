@@ -554,6 +554,7 @@ Rules:
         if header_lines:
             extracted_parts.append("\n".join(header_lines))
 
+        already_extracted = "\n".join(extracted_parts)
         for pattern in priority_headers:
             matches = list(re.finditer(pattern, content, re.IGNORECASE))
             for match in matches:
@@ -564,8 +565,12 @@ Rules:
                 else:
                     end = min(start + max_chars // 2, len(content))
                 section = content[start:end].strip()
-                if section and section not in "\n".join(extracted_parts):
+                # Skip if the section's body text already appears in extracted parts
+                # (handles the case where header block already captured this content)
+                section_body = re.sub(r'^#+\s+\S+\s*\n?', '', section).strip()[:80]
+                if section and section_body and section_body not in already_extracted:
                     extracted_parts.append(section)
+                    already_extracted = "\n".join(extracted_parts)
 
         result = "\n\n".join(extracted_parts)
 
@@ -577,6 +582,60 @@ Rules:
         if len(content) > max_chars:
             return content[:max_chars] + "\n[... truncated ...]"
         return content
+
+    # Character limits for voice memos in fallback collation
+    MAX_MEMO_CHARS_FALLBACK = 400  # per memo — summary + transcript only
+    MAX_TOTAL_MEMO_CHARS_FALLBACK = 15000  # total voice memos section
+
+    @staticmethod
+    def _extract_memo_essence(content: str, max_chars: int) -> str:
+        """Extract only the useful parts of a voice memo (summary + transcript).
+
+        Strips YAML frontmatter and verbose metadata fields, keeping only
+        the human-readable summary and transcript.
+        """
+        text = content
+
+        # Strip YAML frontmatter
+        if text.startswith("---"):
+            end = text.find("---", 3)
+            if end > 0:
+                text = text[end + 3:].strip()
+
+        # Strip verbose metadata lines (key: value pairs at the start)
+        lines = text.split("\n")
+        useful_lines = []
+        skip_metadata = True
+        for line in lines:
+            stripped = line.strip()
+            # Skip metadata-like lines at the top (key: value or key_name: value)
+            if skip_metadata and re.match(r'^[a-z_]+\s*:', stripped):
+                continue
+            skip_metadata = False
+            # Skip empty lines between metadata and content
+            if not useful_lines and not stripped:
+                continue
+            useful_lines.append(line)
+
+        text = "\n".join(useful_lines).strip()
+
+        # Extract just summary and transcript sections
+        sections = []
+        for header in ["## Summary", "## Transcript"]:
+            idx = text.find(header)
+            if idx >= 0:
+                # Find next ## header or end
+                next_h = text.find("\n## ", idx + len(header))
+                section_text = text[idx + len(header):next_h if next_h > 0 else len(text)].strip()
+                if section_text:
+                    sections.append(section_text)
+
+        if sections:
+            text = " | ".join(sections)
+
+        if len(text) > max_chars:
+            text = text[:max_chars] + "..."
+        return text
 
     def _raw_collation(self, cc_reports: list[dict], voice_memos: list[dict],
                        date_str: str) -> str:
@@ -612,16 +671,22 @@ Rules:
         if voice_memos:
             parts.append(f"\n\nVOICE MEMOS ({len(voice_memos)} memos)")
             parts.append("=" * 50)
+            total_memo_chars = 0
             for m in voice_memos:
+                if total_memo_chars >= self.MAX_TOTAL_MEMO_CHARS_FALLBACK:
+                    remaining = len(voice_memos) - voice_memos.index(m)
+                    parts.append(f"\n[... {remaining} additional memos omitted ...]")
+                    break
                 header = f"\n--- {m['timestamp']}"
                 if m.get("summary"):
                     header += f" \u2014 {m['summary']}"
-                header += f" ({m['filename']}) ---\n"
+                header += " ---\n"
                 parts.append(header)
-                content = m["content"]
-                if len(content) > 2000:
-                    content = content[:2000] + "\n[... truncated ...]"
-                parts.append(content)
+                essence = self._extract_memo_essence(
+                    m["content"], self.MAX_MEMO_CHARS_FALLBACK
+                )
+                parts.append(essence)
+                total_memo_chars += len(essence)
 
         return "\n".join(parts)
 
@@ -758,59 +823,128 @@ Rules:
 
         pdf.output(output_path)
 
+    @staticmethod
+    def _strip_md_inline(text: str) -> str:
+        """Strip inline markdown formatting (bold, italic, code, links)."""
+        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)   # **bold**
+        text = re.sub(r'__(.+?)__', r'\1', text)        # __bold__
+        text = re.sub(r'\*(.+?)\*', r'\1', text)        # *italic*
+        text = re.sub(r'_(.+?)_', r'\1', text)          # _italic_
+        text = re.sub(r'`(.+?)`', r'\1', text)          # `code`
+        text = re.sub(r'\[(.+?)\]\(.+?\)', r'\1', text) # [link](url)
+        text = text.replace('**', '')                    # orphaned bold markers
+        return text
+
     def _render_fallback_pdf(self, text: str, date_str: str,
                               session_count: int, memo_count: int,
                               output_path: str):
         """Render plain-text fallback through the DailyReport class.
 
-        Produces a cleaner result than the old line-by-line regex parser
-        by using the semantic rendering methods.
+        Handles markdown syntax (# headings, **bold**, tables, lists)
+        and maps them to semantic PDF methods.
         """
         pdf = DailyReport(date_str)
         pdf.cover_page("Automated Collation (API Unavailable)", session_count, memo_count)
 
         pdf.add_page()
 
-        # Split into sections by common separators
         lines = text.split("\n")
         i = 0
+        in_table = False
+
         while i < len(lines):
-            line = lines[i].strip()
+            line = lines[i]
+            stripped = line.strip()
+
+            # Skip YAML frontmatter blocks
+            if stripped == "---" and i > 0:
+                # Check if this is start of YAML frontmatter (next lines are key: value)
+                if i + 1 < len(lines) and re.match(r'^[a-z_]+\s*:', lines[i + 1].strip()):
+                    i += 1
+                    while i < len(lines) and lines[i].strip() != "---":
+                        i += 1
+                    i += 1  # skip closing ---
+                    continue
 
             # Section divider (=== lines)
-            if line and all(c == "=" for c in line):
+            if stripped and all(c == "=" for c in stripped):
+                i += 1
+                continue
+
+            # Markdown headings: # -> h2, ## -> h2, ### -> h3
+            # (demoted because h1 is reserved for top-level section headers)
+            heading_match = re.match(r'^(#{1,3})\s+(.+)$', stripped)
+            if heading_match:
+                level = len(heading_match.group(1))
+                title = self._strip_md_inline(heading_match.group(2))
+                if level <= 2:
+                    pdf.h2(title)
+                else:
+                    pdf.h3(title)
                 i += 1
                 continue
 
             # ALL CAPS header (possibly numbered)
-            if (line and re.match(r'^(\d+\.\s*)?[A-Z][A-Z\s&\-:,()]+$', line)
-                    and 3 < len(line) < 80):
-                pdf.h1(line)
+            if (stripped and re.match(r'^(\d+\.\s*)?[A-Z][A-Z\s&\-:,()]+$', stripped)
+                    and 3 < len(stripped) < 80):
+                pdf.h1(stripped)
                 i += 1
                 continue
 
             # Sub-header with --- prefix/suffix
-            if line.startswith("---") and line.endswith("---"):
-                title = line.strip("- ").strip()
+            if stripped.startswith("---") and stripped.endswith("---"):
+                title = stripped.strip("- ").strip()
                 if title:
-                    pdf.h2(title)
+                    pdf.h2(self._strip_md_inline(title))
                 i += 1
                 continue
 
-            # Bullet points
-            if line.startswith(("-", "*", "\u2022")) and len(line) > 2:
-                bullet_text = line.lstrip("-*\u2022 ")
+            # Markdown table — skip header separator rows, render data
+            if stripped.startswith("|") and stripped.endswith("|"):
+                # Table separator row (|---|---|)
+                if re.match(r'^\|[\s\-:|\+]+\|$', stripped):
+                    i += 1
+                    continue
+                # Table data row — extract cell content
+                cells = [c.strip() for c in stripped.strip("|").split("|")]
+                row_text = " | ".join(self._strip_md_inline(c) for c in cells if c)
+                if not in_table:
+                    # First row is likely header — render as bold
+                    pdf.h3(row_text)
+                    in_table = True
+                else:
+                    pdf.bullet(row_text)
+                i += 1
+                continue
+            else:
+                in_table = False
+
+            # Numbered list items (1. text, 2. text)
+            num_match = re.match(r'^(\d+)\.\s+(.+)$', stripped)
+            if num_match:
+                bullet_text = self._strip_md_inline(num_match.group(2))
+                pdf.bullet(f"{num_match.group(1)}. {bullet_text}")
+                i += 1
+                continue
+
+            # Bullet points (-, *, •)
+            if stripped.startswith(("-", "*", "\u2022")) and len(stripped) > 2:
+                # Make sure it's not a horizontal rule (---, ***, etc.)
+                if re.match(r'^[-*]{3,}\s*$', stripped):
+                    i += 1
+                    continue
+                bullet_text = self._strip_md_inline(stripped.lstrip("-*\u2022 "))
                 pdf.bullet(bullet_text)
                 i += 1
                 continue
 
             # Empty lines
-            if not line:
+            if not stripped:
                 i += 1
                 continue
 
-            # Body text
-            pdf.body(line)
+            # Body text — strip inline markdown
+            pdf.body(self._strip_md_inline(stripped))
             i += 1
 
         pdf.output(output_path)
