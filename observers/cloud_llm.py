@@ -1,13 +1,16 @@
-"""Shared cloud LLM callers — Gemini, xAI Grok, Claude Haiku, DeepSeek.
+"""Shared cloud LLM callers — Claude Bedrock, xAI Grok, OpenAI (ChatGPT), DeepSeek.
 
 Used by intel_deep_analysis for the AI council (parallel significance scoring).
-All callers use only urllib/httpx — no heavy SDK dependencies.
+All callers use only urllib/httpx/boto3 — no heavy SDK dependencies.
 
 Env vars:
-    GEMINI_API_KEY    — Google AI Studio key
-    XAI_API_KEY       — xAI API key (Grok)
-    ANTHROPIC_API_KEY — Anthropic API key (Claude)
-    DEEPSEEK_API_KEY  — DeepSeek API key
+    AWS_ACCESS_KEY_ID      — AWS credentials for Bedrock
+    AWS_SECRET_ACCESS_KEY  — AWS credentials for Bedrock
+    AWS_DEFAULT_REGION     — AWS region (default us-east-1)
+    GEMINI_API_KEY         — Google AI Studio key (kept for Deep Research / Imagen)
+    XAI_API_KEY            — xAI API key (Grok)
+    OPENAI_API_KEY         — OpenAI API key (ChatGPT)
+    DEEPSEEK_API_KEY       — DeepSeek API key
 """
 
 import json
@@ -18,43 +21,39 @@ import urllib.request
 
 log = logging.getLogger("nexus")
 
+# Lazy-init Bedrock client (boto3 imported on first use)
+_bedrock_client = None
 
-def call_gemini_flash(system_prompt: str, user_prompt: str, timeout: int = 60,
-                      temperature: float = 0.3) -> str:
-    """Call Gemini 2.5 Flash via REST API. Returns text content."""
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY not set")
 
-    model = "gemini-2.5-flash"
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model}"
-        f":generateContent?key={api_key}"
+def _get_bedrock_client():
+    global _bedrock_client
+    if _bedrock_client is None:
+        import boto3
+        _bedrock_client = boto3.client(
+            "bedrock-runtime",
+            region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+        )
+    return _bedrock_client
+
+
+def call_claude_bedrock(system_prompt: str, user_prompt: str, timeout: int = 60,
+                        temperature: float = 0.3) -> str:
+    """Call Claude Sonnet on AWS Bedrock via converse API. Returns text content."""
+    client = _get_bedrock_client()
+    response = client.converse(
+        modelId="us.anthropic.claude-sonnet-4-6",
+        system=[{"text": system_prompt}],
+        messages=[{"role": "user", "content": [{"text": user_prompt}]}],
+        inferenceConfig={"temperature": temperature, "maxTokens": 4096},
     )
-
-    payload = {
-        "system_instruction": {"parts": [{"text": system_prompt}]},
-        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-        "generationConfig": {
-            "temperature": temperature,
-            "maxOutputTokens": 4096,
-            "thinkingConfig": {"thinkingBudget": 4096},
-        },
-    }
-
-    data = json.dumps(payload).encode()
-    req = urllib.request.Request(url, data=data,
-                                headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        result = json.loads(resp.read().decode())
-
-    candidates = result.get("candidates", [])
-    if not candidates:
+    content = response.get("output", {}).get("message", {}).get("content", [])
+    if not content:
         return ""
+    return content[0].get("text", "").strip()
 
-    parts = candidates[0].get("content", {}).get("parts", [])
-    texts = [p.get("text", "") for p in parts if not p.get("thought") and p.get("text")]
-    return "\n".join(texts).strip()
+
+# Backward-compatible alias — existing callers of call_gemini_flash get Claude Bedrock
+call_gemini_flash = call_claude_bedrock
 
 
 def call_xai_grok(system_prompt: str, user_prompt: str, timeout: int = 60,
@@ -91,37 +90,41 @@ def call_xai_grok(system_prompt: str, user_prompt: str, timeout: int = 60,
     return choices[0].get("message", {}).get("content", "").strip()
 
 
-def call_claude_haiku(system_prompt: str, user_prompt: str, timeout: int = 60,
-                      temperature: float = 0.3) -> str:
-    """Call Claude Haiku via Anthropic Messages API. Returns text content."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+def call_openai(system_prompt: str, user_prompt: str, timeout: int = 60,
+                temperature: float = 0.3) -> str:
+    """Call OpenAI ChatGPT via Chat Completions API. Returns text content."""
+    api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set")
+        raise RuntimeError("OPENAI_API_KEY not set")
 
     headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     payload = {
-        "model": "claude-haiku-4-5-20251001",
+        "model": "gpt-4.1-mini",
         "max_tokens": 4096,
         "temperature": temperature,
-        "system": system_prompt,
-        "messages": [{"role": "user", "content": user_prompt}],
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
     }
 
     data = json.dumps(payload).encode()
-    req = urllib.request.Request("https://api.anthropic.com/v1/messages",
+    req = urllib.request.Request("https://api.openai.com/v1/chat/completions",
                                 data=data, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         result = json.loads(resp.read().decode())
 
-    content = ""
-    for block in result.get("content", []):
-        if block.get("type") == "text":
-            content += block.get("text", "")
-    return content.strip()
+    choices = result.get("choices", [])
+    if not choices:
+        return ""
+    return choices[0].get("message", {}).get("content", "").strip()
+
+
+# Backward-compatible alias — callers importing call_claude_haiku get OpenAI instead.
+call_claude_haiku = call_openai
 
 
 def call_deepseek(system_prompt: str, user_prompt: str, timeout: int = 60,

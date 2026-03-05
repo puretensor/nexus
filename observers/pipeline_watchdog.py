@@ -16,12 +16,21 @@ import json
 import logging
 import os
 import subprocess
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from observers.base import Observer, ObserverResult
 
 log = logging.getLogger("nexus")
+
+# Retry config for transient network failures
+MAX_RETRIES = 3
+RETRY_DELAY_SECS = 5
+# Skip watchdog checks for this many seconds after pod start
+STARTUP_GRACE_SECS = 600  # 10 minutes
+
+_pod_start_time = time.monotonic()
 
 # Thresholds
 VOICE_KB_STALE_HOURS = 24  # Alert if no new voice-kb output in this many hours
@@ -49,6 +58,16 @@ class PipelineWatchdog(Observer):
     schedule = "0 */6 * * *"  # Every 6 hours
 
     def run(self, ctx=None) -> ObserverResult:
+        # Startup grace period — skip remote checks if pod just started
+        uptime = time.monotonic() - _pod_start_time
+        if uptime < STARTUP_GRACE_SECS:
+            log.info("Pipeline watchdog: skipping (pod uptime %.0fs < %ds grace)",
+                     uptime, STARTUP_GRACE_SECS)
+            return ObserverResult(
+                success=True, message="",
+                data={"skipped": True, "reason": "startup_grace"},
+            )
+
         now = self.now_utc()
         alerts = []
         healthy = []
@@ -114,26 +133,50 @@ class PipelineWatchdog(Observer):
         except Exception as e:
             alerts.append(f"Rsync sync check failed: {e}")
 
-    def _check_voice_kb(self, now, alerts, healthy):
-        """Check voice-kb ingest service and output freshness."""
+    def _ssh_service_active(self, service: str) -> bool | None:
+        """Check if a systemd service is active on TC via SSH.
+
+        Returns True/False for definitive results, None for transient failures.
+        """
         try:
-            # Check if service is running via SSH to TC
             result = subprocess.run(
                 ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no",
                  f"puretensorai@{TC_HOST}",
-                 "systemctl is-active voice-kb-ingest 2>/dev/null"],
+                 f"systemctl is-active {service} 2>/dev/null"],
                 capture_output=True, text=True, timeout=15,
             )
-            service_active = result.stdout.strip() == "active"
+            return result.stdout.strip() == "active"
+        except (subprocess.TimeoutExpired, OSError):
+            return None  # Transient — worth retrying
 
-            if not service_active:
-                alerts.append(
-                    "voice-kb-ingest service NOT running on tensor-core \u2014 "
-                    "pipeline is dead, new voice memos will not be processed"
-                )
-                return
+    def _check_voice_kb(self, now, alerts, healthy):
+        """Check voice-kb ingest service and output freshness (with retries)."""
+        service_active = None
+        for attempt in range(MAX_RETRIES):
+            service_active = self._ssh_service_active("voice-kb-ingest")
+            if service_active is not None:
+                break
+            if attempt < MAX_RETRIES - 1:
+                log.info("voice-kb SSH check failed (attempt %d/%d), retrying in %ds",
+                         attempt + 1, MAX_RETRIES, RETRY_DELAY_SECS)
+                time.sleep(RETRY_DELAY_SECS)
 
-            # Check output freshness via sync mount
+        if service_active is None:
+            alerts.append(
+                "voice-kb check: SSH to tensor-core failed after "
+                f"{MAX_RETRIES} attempts"
+            )
+            return
+
+        if not service_active:
+            alerts.append(
+                "voice-kb-ingest service NOT running on tensor-core \u2014 "
+                "pipeline is dead, new voice memos will not be processed"
+            )
+            return
+
+        # Check output freshness via sync mount
+        try:
             if VOICE_KB_SYNC_DIR.exists():
                 files = sorted(VOICE_KB_SYNC_DIR.glob("*.md"),
                               key=lambda p: p.stat().st_mtime)
@@ -153,10 +196,8 @@ class PipelineWatchdog(Observer):
                     return
 
             healthy.append("voice-kb ingest: service active (sync dir not available for freshness check)")
-        except subprocess.TimeoutExpired:
-            alerts.append("voice-kb check: SSH to tensor-core timed out")
         except Exception as e:
-            alerts.append(f"voice-kb check failed: {e}")
+            alerts.append(f"voice-kb freshness check failed: {e}")
 
     def _check_daily_report(self, now, alerts, healthy):
         """Check that the daily report observer ran recently."""
@@ -182,23 +223,43 @@ class PipelineWatchdog(Observer):
         except Exception as e:
             alerts.append(f"Daily report check failed: {e}")
 
-    def _check_vllm(self, alerts, healthy):
-        """Check vLLM is responding."""
+    def _curl_health(self, url: str) -> str | None:
+        """Curl a health endpoint. Returns HTTP status code, or None on transient failure."""
         try:
             result = subprocess.run(
                 ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-                 "--connect-timeout", "5", VLLM_URL],
+                 "--connect-timeout", "5", url],
                 capture_output=True, text=True, timeout=10,
             )
             status = result.stdout.strip()
-            if status == "200":
-                healthy.append("vLLM: healthy (port 8200)")
-            else:
-                alerts.append(f"vLLM health check returned HTTP {status}")
-        except subprocess.TimeoutExpired:
-            alerts.append("vLLM health check timed out")
-        except Exception as e:
-            alerts.append(f"vLLM health check failed: {e}")
+            # HTTP 000 = connection failed — treat as transient
+            if status == "000":
+                return None
+            return status
+        except (subprocess.TimeoutExpired, OSError):
+            return None
+
+    def _check_vllm(self, alerts, healthy):
+        """Check vLLM is responding (with retries)."""
+        status = None
+        for attempt in range(MAX_RETRIES):
+            status = self._curl_health(VLLM_URL)
+            if status is not None:
+                break
+            if attempt < MAX_RETRIES - 1:
+                log.info("vLLM health check failed (attempt %d/%d), retrying in %ds",
+                         attempt + 1, MAX_RETRIES, RETRY_DELAY_SECS)
+                time.sleep(RETRY_DELAY_SECS)
+
+        if status is None:
+            alerts.append(
+                f"vLLM health check unreachable after {MAX_RETRIES} attempts "
+                f"(HTTP 000 / connection refused)"
+            )
+        elif status == "200":
+            healthy.append("vLLM: healthy (port 8200)")
+        else:
+            alerts.append(f"vLLM health check returned HTTP {status}")
 
     def _check_observer_health(self, now, alerts, healthy):
         """Check observer state directory for signs of life."""

@@ -11,7 +11,7 @@ Usage:
         content="Article text here...",
         roles={
             "editor": {
-                "model": "haiku",
+                "model": "chatgpt",
                 "system": "You are an editor-in-chief...",
                 "prompt": "Evaluate this article for prose quality...",
             },
@@ -38,7 +38,7 @@ if _nexus_root not in _sys.path:
     _sys.path.insert(0, _nexus_root)
 
 from observers.cloud_llm import (
-    call_claude_haiku,
+    call_openai,
     call_deepseek,
     call_gemini_flash,
     call_xai_grok,
@@ -49,7 +49,7 @@ log = logging.getLogger("nexus")
 
 # Model name → caller function
 MODEL_CALLERS = {
-    "haiku": call_claude_haiku,
+    "chatgpt": call_openai,
     "gemini": call_gemini_flash,
     "grok": call_xai_grok,
     "deepseek": call_deepseek,
@@ -275,7 +275,7 @@ if __name__ == "__main__":
 
     test_roles = {
         "editor": {
-            "model": "haiku",
+            "model": "chatgpt",
             "system": "You are an editor evaluating prose quality.",
             "prompt": "Score this text for writing quality, clarity, and structure.",
         },

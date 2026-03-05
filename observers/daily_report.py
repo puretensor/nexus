@@ -43,6 +43,7 @@ DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
 # PDF styling
 FONT_DIR = "/usr/share/fonts/truetype/dejavu/"
 DARK_BLUE = (26, 60, 110)
+ACCENT_BLUE = (52, 103, 172)
 BODY_GREY = (51, 51, 51)
 META_GREY = (85, 85, 85)
 LIGHT_GREY = (119, 119, 119)
@@ -83,19 +84,23 @@ def _make_daily_pdf_class(date_str: str):
         def header(self):
             if self.page_no() == 1:
                 return
-            self.set_font("DejaVu", "", 8)
-            self.set_text_color(*DARK_BLUE)
+            self.set_font("DejaVu", "", 7.5)
+            self.set_text_color(*LIGHT_GREY)
             self.cell(0, 6, doc_title, ln=False)
             self.cell(0, 6, f"Page {self.page_no()}", align="R", ln=True)
-            self.set_draw_color(*DARK_BLUE)
+            self.set_draw_color(*ACCENT_BLUE)
+            self.set_line_width(0.4)
             self.line(10, self.get_y(), 200, self.get_y())
-            self.ln(4)
+            self.ln(6)
 
         def footer(self):
             self.set_y(-15)
-            self.set_font("DejaVu", "I", 8)
+            self.set_draw_color(*TABLE_BG)
+            self.set_line_width(0.3)
+            self.line(10, self.get_y(), 200, self.get_y())
+            self.set_font("DejaVu", "", 7.5)
             self.set_text_color(*LIGHT_GREY)
-            self.cell(0, 10, f"PureTensor Inc \u2014 {date_display}", align="C")
+            self.cell(0, 10, f"PureTensor Inc  |  {date_display}  |  CONFIDENTIAL", align="C")
 
     return _PDF(), date_display
 
@@ -123,82 +128,94 @@ class DailyReport:
     # -- Semantic rendering methods ----------------------------------------
 
     def h1(self, text: str):
-        """Section heading — 20pt bold dark blue with 0.5pt underline rule."""
-        self._pdf.ln(4)
-        self._pdf.set_font("DejaVu", "B", 20)
+        """Section heading — 18pt bold dark blue with accent underline."""
+        self._pdf.ln(8)
+        self._pdf.set_font("DejaVu", "B", 18)
         self._pdf.set_text_color(*DARK_BLUE)
-        self._pdf.cell(0, 12, text, ln=True)
-        self._pdf.set_draw_color(*DARK_BLUE)
-        self._pdf.set_line_width(0.5)
-        self._pdf.line(10, self._pdf.get_y(), 200, self._pdf.get_y())
-        self._pdf.ln(4)
+        self._pdf.cell(0, 11, text, ln=True)
+        self._pdf.set_draw_color(*ACCENT_BLUE)
+        self._pdf.set_line_width(0.8)
+        self._pdf.line(10, self._pdf.get_y() + 1, 200, self._pdf.get_y() + 1)
+        self._pdf.ln(6)
 
     def h2(self, text: str):
-        """Sub-heading — 14pt bold dark blue."""
-        self._pdf.ln(2)
-        self._pdf.set_font("DejaVu", "B", 14)
+        """Sub-heading — 13pt bold dark blue."""
+        self._pdf.ln(5)
+        self._pdf.set_font("DejaVu", "B", 13)
         self._pdf.set_text_color(*DARK_BLUE)
-        self._pdf.cell(0, 9, text, ln=True)
-        self._pdf.ln(2)
+        self._pdf.cell(0, 8, text, ln=True)
+        self._pdf.ln(3)
 
     def h3(self, text: str):
-        """Minor heading — 12pt bold dark blue."""
-        self._pdf.ln(1)
-        self._pdf.set_font("DejaVu", "B", 12)
-        self._pdf.set_text_color(*DARK_BLUE)
+        """Minor heading — 11pt bold dark blue."""
+        self._pdf.ln(3)
+        self._pdf.set_font("DejaVu", "B", 11)
+        self._pdf.set_text_color(*ACCENT_BLUE)
         self._pdf.cell(0, 7, text, ln=True)
-        self._pdf.ln(1)
+        self._pdf.ln(2)
 
     def body(self, text: str):
-        """Body paragraph — 10pt body grey, multi_cell."""
+        """Body paragraph — 10pt body grey, multi_cell with improved line spacing."""
         self._pdf.set_font("DejaVu", "", 10)
         self._pdf.set_text_color(*BODY_GREY)
-        self._pdf.multi_cell(0, 5.5, text)
-        self._pdf.ln(1)
+        self._pdf.multi_cell(0, 6, text)
+        self._pdf.ln(2)
 
-    def bullet(self, text: str):
-        """Simple bullet point."""
+    def bullet(self, text: str, indent: int = 0):
+        """Simple bullet point with optional indent level."""
+        x_offset = 10 + (indent * 8)
         self._pdf.set_font("DejaVu", "", 10)
         self._pdf.set_text_color(*BODY_GREY)
-        self._pdf.cell(6, 5.5, "\u2022")
-        self._pdf.multi_cell(0, 5.5, text)
-        self._pdf.ln(0.5)
+        self._pdf.set_x(x_offset)
+        self._pdf.cell(6, 6, "\u2022")
+        self._pdf.multi_cell(0, 6, text)
+        self._pdf.ln(1)
 
     def bold_bullet(self, label: str, text: str):
         """Bullet with bold label followed by normal text."""
         self._pdf.set_text_color(*BODY_GREY)
         self._pdf.set_font("DejaVu", "", 10)
-        self._pdf.cell(6, 5.5, "\u2022")
+        self._pdf.cell(6, 6, "\u2022")
         self._pdf.set_font("DejaVu", "B", 10)
         label_w = self._pdf.get_string_width(label + " ")
-        self._pdf.cell(label_w, 5.5, label + " ")
+        self._pdf.cell(label_w, 6, label + " ")
         self._pdf.set_font("DejaVu", "", 10)
-        self._pdf.multi_cell(0, 5.5, text)
-        self._pdf.ln(0.5)
+        self._pdf.multi_cell(0, 6, text)
+        self._pdf.ln(1)
 
     def table_header(self, cols: list[str], widths: list[int]):
-        """Dark blue header row for a table."""
+        """Dark blue header row for a table with rounded feel."""
         self._pdf.set_font("DejaVu", "B", 9)
         self._pdf.set_fill_color(*DARK_BLUE)
         self._pdf.set_text_color(*WHITE)
+        self._pdf.set_draw_color(*DARK_BLUE)
         for i, col in enumerate(cols):
-            self._pdf.cell(widths[i], 7, col, border=1, fill=True, align="C")
+            self._pdf.cell(widths[i], 8, f"  {col}", border=1, fill=True)
         self._pdf.ln()
 
     def table_row(self, cols: list[str], widths: list[int], alt: bool = False):
-        """Table data row with optional alternating background."""
+        """Table data row with alternating background and text wrapping."""
         self._pdf.set_font("DejaVu", "", 9)
         self._pdf.set_text_color(*BODY_GREY)
+        self._pdf.set_draw_color(*TABLE_BG)
         if alt:
             self._pdf.set_fill_color(*TABLE_BG)
         else:
             self._pdf.set_fill_color(*WHITE)
+        # Calculate max row height needed for text wrapping
+        max_lines = 1
         for i, col in enumerate(cols):
-            self._pdf.cell(widths[i], 6, col, border=1, fill=True)
+            text_w = self._pdf.get_string_width(col)
+            cell_w = widths[i] - 4  # padding
+            if cell_w > 0 and text_w > cell_w:
+                max_lines = max(max_lines, int(text_w / cell_w) + 1)
+        row_h = max(7, 7 * max_lines)
+        for i, col in enumerate(cols):
+            self._pdf.cell(widths[i], row_h, f"  {col}", border=1, fill=True)
         self._pdf.ln()
 
     def cover_page(self, subtitle: str, session_count: int, memo_count: int):
-        """Render the established cover page layout."""
+        """Render the established cover page layout with accent lines."""
         self._pdf.add_page()
 
         # Corporate header
@@ -207,32 +224,45 @@ class DailyReport:
         self._pdf.cell(0, 5, "PureTensor Inc", align="R", ln=True)
         self._pdf.cell(0, 5, "131 Continental Dr, Suite 305", align="R", ln=True)
         self._pdf.cell(0, 5, "Newark, DE 19713, US", align="R", ln=True)
-        self._pdf.ln(40)
+        self._pdf.ln(35)
+
+        # Top accent line
+        self._pdf.set_draw_color(*ACCENT_BLUE)
+        self._pdf.set_line_width(1.5)
+        self._pdf.line(60, self._pdf.get_y(), 150, self._pdf.get_y())
+        self._pdf.ln(10)
 
         # Title — 36pt "Daily Report"
         self._pdf.set_font("DejaVu", "B", 36)
         self._pdf.set_text_color(*DARK_BLUE)
         self._pdf.cell(0, 18, "Daily Report", align="C", ln=True)
-        self._pdf.ln(4)
+        self._pdf.ln(6)
 
         # Date
         self._pdf.set_font("DejaVu", "", 18)
         self._pdf.set_text_color(*META_GREY)
         self._pdf.cell(0, 12, self.date_display, align="C", ln=True)
-        self._pdf.ln(8)
+        self._pdf.ln(6)
+
+        # Bottom accent line
+        self._pdf.set_draw_color(*ACCENT_BLUE)
+        self._pdf.set_line_width(1.5)
+        self._pdf.line(60, self._pdf.get_y(), 150, self._pdf.get_y())
+        self._pdf.ln(10)
 
         # Thematic subtitle
         if subtitle:
-            self._pdf.set_font("DejaVu", "", 12)
+            self._pdf.set_font("DejaVu", "I", 13)
             self._pdf.set_text_color(*META_GREY)
             self._pdf.cell(0, 8, subtitle, align="C", ln=True)
         self._pdf.ln(30)
 
         # Stats + meta
-        self._pdf.set_font("DejaVu", "", 11)
+        self._pdf.set_font("DejaVu", "", 10)
         self._pdf.set_text_color(*LIGHT_GREY)
         gen_time = datetime.now(timezone.utc).strftime("%d %B %Y %H:%M UTC")
         self._pdf.cell(0, 7, f"Generated: {gen_time}", align="C", ln=True)
+        self._pdf.ln(2)
         self._pdf.cell(
             0, 7,
             "Primary Node: tensor-core (AMD TR PRO 9975WX, 512 GB, 2\u00d7 RTX PRO 6000)",
@@ -243,7 +273,9 @@ class DailyReport:
             f"Sessions: {session_count}  |  Voice Memos: {memo_count}",
             align="C", ln=True,
         )
-        self._pdf.ln(6)
+        self._pdf.ln(10)
+        self._pdf.set_font("DejaVu", "B", 10)
+        self._pdf.set_text_color(*DARK_BLUE)
         self._pdf.cell(0, 7, "CONFIDENTIAL", align="C", ln=True)
 
 
@@ -486,8 +518,8 @@ Rules:
             log.warning("JSON parse failed: %s", e)
             return None
 
-    # LLM providers for synthesis (tried in order)
-    SYNTHESIS_PROVIDERS = [
+    # LLM providers for synthesis — tried in order: Bedrock (Claude) → DeepSeek → xAI
+    OPENAI_COMPAT_PROVIDERS = [
         {
             "name": "DeepSeek",
             "env_key": "DEEPSEEK_API_KEY",
@@ -501,6 +533,54 @@ Rules:
             "model": "grok-3-mini",
         },
     ]
+
+    SYSTEM_PROMPT = (
+        "You are a technical report synthesizer for PureTensor Inc. "
+        "You produce structured JSON daily reports from raw session logs "
+        "and voice memos. Return ONLY valid JSON, no markdown fences, "
+        "no explanation text."
+    )
+
+    def _call_bedrock(self, prompt: str, timeout: int = 180) -> str:
+        """Call AWS Bedrock Claude Sonnet 4.6 for synthesis.
+
+        Uses boto3 converse API. Returns the response text.
+        Raises on failure (missing creds, API errors, etc.).
+        """
+        import boto3
+
+        access_key = os.environ.get("AWS_ACCESS_KEY_ID", "")
+        secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
+        region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+
+        if not access_key or not secret_key:
+            raise ValueError("Bedrock: AWS credentials not set")
+
+        client = boto3.client(
+            "bedrock-runtime",
+            region_name=region,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+        )
+
+        response = client.converse(
+            modelId="us.anthropic.claude-sonnet-4-6",
+            system=[{"text": self.SYSTEM_PROMPT}],
+            messages=[
+                {"role": "user", "content": [{"text": prompt}]},
+            ],
+            inferenceConfig={
+                "temperature": 0.3,
+                "maxTokens": 8192,
+            },
+        )
+
+        # Extract text from converse response
+        output = response.get("output", {})
+        message = output.get("message", {})
+        content_blocks = message.get("content", [])
+        texts = [b["text"] for b in content_blocks if "text" in b]
+        return "\n".join(texts)
 
     def _call_openai_compat(self, prompt: str, provider: dict, timeout: int = 180) -> str:
         """Call an OpenAI-compatible API endpoint for synthesis.
@@ -523,12 +603,7 @@ Rules:
         response = client.chat.completions.create(
             model=provider["model"],
             messages=[
-                {"role": "system", "content": (
-                    "You are a technical report synthesizer for PureTensor Inc. "
-                    "You produce structured JSON daily reports from raw session logs "
-                    "and voice memos. Return ONLY valid JSON, no markdown fences, "
-                    "no explanation text."
-                )},
+                {"role": "system", "content": self.SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.3,
@@ -541,7 +616,7 @@ Rules:
                           date_str: str) -> dict | str:
         """Synthesize a structured daily report using available LLM providers.
 
-        Tries each provider in SYNTHESIS_PROVIDERS order (DeepSeek, xAI).
+        Provider order: Bedrock (Claude Sonnet 4.6) -> DeepSeek -> xAI Grok.
         Returns a dict (structured JSON) on success, or a str (plain text
         from raw collation fallback) if all providers fail.
         """
@@ -550,7 +625,37 @@ Rules:
 
         last_error = None
 
-        for provider in self.SYNTHESIS_PROVIDERS:
+        # 1. Try AWS Bedrock (Claude Sonnet 4.6) first
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                log.info("Bedrock (Claude Sonnet 4.6) synthesis attempt %d/%d",
+                         attempt, self.MAX_RETRIES)
+                result = self._call_bedrock(prompt)
+                if result and len(result.strip()) > 100:
+                    parsed = self._parse_json_response(result)
+                    if parsed:
+                        log.info("Bedrock returned valid structured JSON")
+                        return parsed
+                    log.warning("Bedrock response not valid JSON on attempt %d", attempt)
+                    last_error = "Bedrock: invalid JSON"
+                else:
+                    log.warning("Bedrock returned insufficient content (%d chars)",
+                                len(result) if result else 0)
+                    last_error = "Bedrock: insufficient content"
+            except Exception as e:
+                last_error = f"Bedrock: {e}"
+                log.warning("Bedrock attempt %d failed: %s", attempt, e)
+
+            if attempt < self.MAX_RETRIES:
+                delay = self.RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                log.info("Retrying Bedrock in %d seconds...", delay)
+                time.sleep(delay)
+
+        log.warning("All %d Bedrock attempts failed, trying fallback providers",
+                    self.MAX_RETRIES)
+
+        # 2. Try OpenAI-compatible fallbacks (DeepSeek, xAI)
+        for provider in self.OPENAI_COMPAT_PROVIDERS:
             for attempt in range(1, self.MAX_RETRIES + 1):
                 try:
                     log.info("%s synthesis attempt %d/%d",
@@ -782,13 +887,22 @@ Rules:
         subtitle = data.get("subtitle", "")
         pdf.cover_page(subtitle, session_count, memo_count)
 
-        # Start content
+        # Page 2 — Executive Summary (prominent placement)
         pdf.add_page()
         section_num = 1
 
-        # 1. Executive Summary
+        # 1. Executive Summary — highlighted with background box
         pdf.h1(f"{section_num}. Executive Summary")
-        pdf.body(data.get("executive_summary", "No summary available."))
+        summary_text = data.get("executive_summary", "No summary available.")
+        # Render summary with slightly larger font for prominence
+        pdf._pdf.set_font("DejaVu", "", 11)
+        pdf._pdf.set_text_color(*BODY_GREY)
+        pdf._pdf.set_fill_color(*TABLE_BG)
+        x = pdf._pdf.get_x()
+        y = pdf._pdf.get_y()
+        # Draw background rect then text
+        pdf._pdf.multi_cell(0, 7, summary_text, fill=True)
+        pdf._pdf.ln(4)
         section_num += 1
 
         # 2-N. Activities by Theme

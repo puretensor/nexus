@@ -30,7 +30,7 @@ if _nexus_root not in _sys.path:
     _sys.path.insert(0, _nexus_root)
 
 from observers.cloud_llm import (
-    call_gemini_flash, call_xai_grok, call_claude_haiku, call_deepseek, extract_json,
+    call_gemini_flash, call_xai_grok, call_openai, call_deepseek, extract_json,
 )
 from observers.intel_deep_analysis import IntelDeepAnalysisObserver, BRANDS, GCP_SSH_HOST
 
@@ -157,7 +157,7 @@ class IntelManualPublisher:
         callers = {
             "gemini":   lambda: call_gemini_flash(system, prompt, timeout=45),
             "grok":     lambda: call_xai_grok(system, prompt, timeout=45),
-            "claude":   lambda: call_claude_haiku(system, prompt, timeout=45),
+            "chatgpt":  lambda: call_openai(system, prompt, timeout=45),
             "deepseek": lambda: call_deepseek(system, prompt, timeout=45),
         }
 
