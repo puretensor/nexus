@@ -141,7 +141,7 @@ class NodeHealthObserver(Observer):
         )
 
         log.info("Invoking Claude to investigate %d down nodes...", len(down_nodes))
-        claude_response = self.call_claude(prompt)
+        claude_response = self.call_claude(prompt, model="haiku")
 
         # Save escalation context for the bot's callback handler
         self.save_escalation_context(down_nodes, claude_response)

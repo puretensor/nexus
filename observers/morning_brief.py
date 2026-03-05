@@ -316,7 +316,7 @@ class MorningBriefObserver(Observer):
         # Build prompt and call Claude
         prompt = self._build_prompt(sections)
         log.info("Asking Claude for morning brief...")
-        brief = self.call_claude(prompt)
+        brief = self.call_claude(prompt, model="haiku")
 
         if not brief:
             return ObserverResult(

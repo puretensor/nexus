@@ -30,13 +30,13 @@ ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
 ANTHROPIC_MAX_TOKENS = int(os.environ.get("ANTHROPIC_MAX_TOKENS", "4096"))
 ANTHROPIC_TOOLS_ENABLED = os.environ.get("ANTHROPIC_TOOLS_ENABLED", "true").lower() == "true"
 ANTHROPIC_TOOL_MAX_ITER = int(os.environ.get("ANTHROPIC_TOOL_MAX_ITER", "25"))
-ANTHROPIC_TOOL_TIMEOUT = int(os.environ.get("ANTHROPIC_TOOL_TIMEOUT", "30"))
-ANTHROPIC_TOTAL_TIMEOUT = int(os.environ.get("ANTHROPIC_TOTAL_TIMEOUT", "300"))
+ANTHROPIC_TOOL_TIMEOUT = int(os.environ.get("ANTHROPIC_TOOL_TIMEOUT", "120"))
+ANTHROPIC_TOTAL_TIMEOUT = int(os.environ.get("ANTHROPIC_TOTAL_TIMEOUT", "600"))
 
 # AWS Bedrock
 BEDROCK_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
 BEDROCK_MODEL = os.environ.get("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
-BEDROCK_MAX_TOKENS = int(os.environ.get("BEDROCK_MAX_TOKENS", "8192"))
+BEDROCK_MAX_TOKENS = int(os.environ.get("BEDROCK_MAX_TOKENS", "64000"))
 
 # vLLM — local OpenAI-compatible endpoint
 VLLM_URL = os.environ.get("VLLM_URL", "http://localhost:8200/v1")

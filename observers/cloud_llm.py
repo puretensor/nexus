@@ -37,11 +37,12 @@ def _get_bedrock_client():
 
 
 def call_claude_bedrock(system_prompt: str, user_prompt: str, timeout: int = 60,
-                        temperature: float = 0.3) -> str:
-    """Call Claude Sonnet on AWS Bedrock via converse API. Returns text content."""
+                        temperature: float = 0.3,
+                        model_id: str = "us.anthropic.claude-sonnet-4-6") -> str:
+    """Call Claude on AWS Bedrock via converse API. Returns text content."""
     client = _get_bedrock_client()
     response = client.converse(
-        modelId="us.anthropic.claude-sonnet-4-6",
+        modelId=model_id,
         system=[{"text": system_prompt}],
         messages=[{"role": "user", "content": [{"text": user_prompt}]}],
         inferenceConfig={"temperature": temperature, "maxTokens": 4096},
@@ -52,8 +53,15 @@ def call_claude_bedrock(system_prompt: str, user_prompt: str, timeout: int = 60,
     return content[0].get("text", "").strip()
 
 
-# Backward-compatible alias — existing callers of call_gemini_flash get Claude Bedrock
-call_gemini_flash = call_claude_bedrock
+def call_claude_bedrock_haiku(system_prompt: str, user_prompt: str, timeout: int = 60,
+                              temperature: float = 0.3) -> str:
+    """Call Claude Haiku on AWS Bedrock. Cheaper, for bulk/simple tasks."""
+    return call_claude_bedrock(system_prompt, user_prompt, timeout, temperature,
+                               model_id="us.anthropic.claude-haiku-4-5-20251001")
+
+
+# Backward-compatible alias — existing callers of call_gemini_flash get Haiku
+call_gemini_flash = call_claude_bedrock_haiku
 
 
 def call_xai_grok(system_prompt: str, user_prompt: str, timeout: int = 60,
@@ -123,8 +131,8 @@ def call_openai(system_prompt: str, user_prompt: str, timeout: int = 60,
     return choices[0].get("message", {}).get("content", "").strip()
 
 
-# Backward-compatible alias — callers importing call_claude_haiku get OpenAI instead.
-call_claude_haiku = call_openai
+# Backward-compatible alias — callers importing call_claude_haiku get Bedrock Haiku.
+call_claude_haiku = call_claude_bedrock_haiku
 
 
 def call_deepseek(system_prompt: str, user_prompt: str, timeout: int = 60,

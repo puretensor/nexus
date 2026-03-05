@@ -92,6 +92,18 @@ def _convert_history_to_bedrock(messages: list[dict]) -> list[dict]:
                 continue
             elif block.get("type") == "text":
                 blocks.append({"text": block.get("text", "")})
+            elif block.get("type") == "thinking":
+                # Extended thinking block — convert back to Bedrock format
+                rc = {"reasoningText": {"text": block.get("thinking", "")}}
+                sig = block.get("signature", "")
+                if sig:
+                    rc["signature"] = sig
+                blocks.append({"reasoningContent": rc})
+            elif block.get("type") == "redacted_thinking":
+                # Redacted thinking — pass through opaquely
+                blocks.append({"reasoningContent": {
+                    "redactedContent": block.get("data", ""),
+                }})
             elif block.get("type") == "tool_use":
                 blocks.append({
                     "toolUse": {
@@ -235,7 +247,28 @@ class BedrockAPIBackend:
         anthropic_blocks: list[dict] = []  # Store in Anthropic format for history
 
         for block in content_blocks:
-            if "text" in block:
+            if "reasoningContent" in block:
+                # Extended thinking block — preserve for tool loop continuity.
+                # Store in Anthropic-compatible format for history round-trip.
+                rc = block["reasoningContent"]
+                thinking_text = ""
+                if "reasoningText" in rc:
+                    rt = rc["reasoningText"]
+                    thinking_text = rt.get("text", "") if isinstance(rt, dict) else str(rt)
+                signature = rc.get("signature", "")
+                if "redactedContent" in rc:
+                    # Redacted thinking — preserve opaquely
+                    anthropic_blocks.append({
+                        "type": "redacted_thinking",
+                        "data": rc.get("redactedContent", ""),
+                    })
+                else:
+                    anthropic_blocks.append({
+                        "type": "thinking",
+                        "thinking": thinking_text,
+                        "signature": signature,
+                    })
+            elif "text" in block:
                 text_parts.append(block["text"])
                 anthropic_blocks.append({"type": "text", "text": block["text"]})
             elif "toolUse" in block:
@@ -318,6 +351,12 @@ class BedrockAPIBackend:
             kwargs["toolConfig"] = {
                 "tools": self._tools + [{"cachePoint": {"type": "default"}}],
             }
+
+        # Enable adaptive extended thinking — lets Claude reason before
+        # responding. Cannot coexist with temperature/topP/topK.
+        kwargs["additionalModelRequestFields"] = {
+            "thinking": {"type": "adaptive"},
+        }
 
         return kwargs
 

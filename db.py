@@ -1023,7 +1023,7 @@ def count_replies_to_sender(sender_addr: str, hours: int = 1) -> int:
 # Conversation history (for stateless backends like anthropic_api)
 # ---------------------------------------------------------------------------
 
-_MAX_HISTORY_MESSAGES = 60  # 30 exchanges — stays well within 200k context
+_MAX_HISTORY_MESSAGES = 200  # 100 exchanges — relies on future context compression
 
 
 def _has_tool_result(msg: dict) -> bool:

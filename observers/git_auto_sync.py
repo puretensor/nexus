@@ -198,7 +198,7 @@ class GitAutoSyncObserver(Observer):
                 )
 
                 response = client.converse(
-                    modelId="us.anthropic.claude-sonnet-4-6",
+                    modelId="us.anthropic.claude-haiku-4-5-20251001",
                     system=[{"text": BEDROCK_SYSTEM}],
                     messages=[{"role": "user", "content": [{"text": prompt}]}],
                     inferenceConfig={"temperature": 0.3, "maxTokens": 100},

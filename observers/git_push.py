@@ -202,7 +202,7 @@ class GitPushObserver(Observer):
             "Focus on the substance, not the mechanics. Plain text, no markdown."
         )
 
-        claude_summary = self.call_claude(prompt)
+        claude_summary = self.call_claude(prompt, model="haiku")
 
         # Build Telegram message
         header = (

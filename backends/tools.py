@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 log = logging.getLogger("nexus")
 
 # Max chars returned from any single tool execution
-MAX_OUTPUT_CHARS = 8000
+MAX_OUTPUT_CHARS = 32000
 
 # ---------------------------------------------------------------------------
 # Tool schemas (OpenAI function calling format)
@@ -278,7 +278,7 @@ def _truncate(text: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _exec_bash(args: dict, *, timeout: int = 30, cwd: str | None = None) -> tuple[str, list[str]]:
+def _exec_bash(args: dict, *, timeout: int = 120, cwd: str | None = None) -> tuple[str, list[str]]:
     """Execute a shell command. Returns (output, written_files)."""
     command = args.get("command", "")
     if not command:
@@ -418,7 +418,7 @@ def _exec_glob(args: dict, **_kwargs) -> tuple[str, list[str]]:
 
     try:
         base = pathlib.Path(search_path)
-        matches = sorted(base.glob(pattern))[:100]
+        matches = sorted(base.glob(pattern))[:1000]
         if not matches:
             return f"No files matching '{pattern}' in {search_path}", []
         result = "\n".join(str(m) for m in matches)
