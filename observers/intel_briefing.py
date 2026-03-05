@@ -371,7 +371,9 @@ class IntelBriefingObserver(Observer):
         date_str = now.strftime("%d %b %Y")
         time_str = now.strftime("%H:%M UTC")
 
-        prompt = f"""Analyse the following {len(all_articles)} news articles and intelligence signals collected over the past 24 hours. Produce a strategic intelligence briefing.
+        prompt = f"""Today is {date_str}, {time_str}. This is the actual current date — trust it completely. Do NOT treat events or documents dated 2025 or 2026 as speculative or forward-looking simply because they are near your training cutoff. They are real and current.
+
+Analyse the following {len(all_articles)} news articles and intelligence signals collected over the past 24 hours. Produce a strategic intelligence briefing.
 
 DATE: {date_str}, {time_str}
 

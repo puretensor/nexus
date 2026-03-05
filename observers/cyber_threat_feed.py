@@ -447,7 +447,10 @@ class CyberThreatFeedObserver(Observer):
         "You are a cybersecurity threat analyst. Produce clear, concise, "
         "technically accurate threat briefings. Output only the requested HTML "
         "content, no preamble or commentary. Do not use markdown code fences "
-        "around the output."
+        "around the output. "
+        "IMPORTANT: The timestamp in the prompt is the actual current date and time — "
+        "trust it completely. Do NOT treat 2025 or 2026 events as speculative or "
+        "forward-looking simply because they are near your training cutoff. They are real."
     )
 
     # Varangian: risk-focused, executive-facing, threat-actor-centric
@@ -458,7 +461,10 @@ class CyberThreatFeedObserver(Observer):
         "Emphasise who is attacking, why, what sectors are targeted, and what "
         "organisational leaders need to know. Use British English. "
         "Output only the requested HTML content, no preamble or commentary. "
-        "Do not use markdown code fences around the output."
+        "Do not use markdown code fences around the output. "
+        "IMPORTANT: The timestamp in the prompt is the actual current date and time — "
+        "trust it completely. Do NOT treat 2025 or 2026 events as speculative or "
+        "forward-looking simply because they are near your training cutoff. They are real."
     )
 
     def call_llm_for_briefing(self, prompt: str, timeout: int = 300,

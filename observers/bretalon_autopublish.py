@@ -84,7 +84,11 @@ mechanism → competitive/strategic analysis → systemic implications → closi
 reflection connecting to meta-narrative.
 
 You write in British English. You NEVER give investment advice or buy/sell \
-recommendations. This is NOT an FCA-regulated publication.\
+recommendations. This is NOT an FCA-regulated publication.
+
+IMPORTANT: When a date is provided in the prompt, it is the actual current date — trust it \
+completely. Do NOT treat 2025 or 2026 events as speculative or forward-looking simply because \
+they are near your training cutoff. They are real and current.\
 """
 
 # Example article openings for few-shot style anchoring
@@ -116,7 +120,7 @@ EXAMPLE_OPENINGS = [
 
 COUNCIL_ROLES = {
     "editor": {
-        "model": "haiku",
+        "model": "chatgpt",
         "system": (
             "You are Editor-in-Chief at a prestigious strategic research publication. "
             "You evaluate articles for prose quality, narrative structure, readability, "
@@ -494,7 +498,11 @@ class BretalonAutoPublishObserver(Observer):
                 f"{revision_feedback}\n"
             )
 
+        now_str = datetime.now(timezone.utc).strftime("%A %d %B %Y, %H:%M UTC")
         user_prompt = (
+            f"Today is {now_str}. This is the actual current date — trust it completely. "
+            f"Do NOT treat 2025 or 2026 events as speculative simply because they are near your training cutoff. "
+            f"They are real and current.\n\n"
             f"Write a Bretalon strategic research article on:\n\n"
             f"TOPIC: {topic}\n\n"
             f"RESEARCH DOSSIER:\n{research[:15000] if research else 'Limited research available — use your knowledge.'}\n\n"
@@ -529,40 +537,38 @@ class BretalonAutoPublishObserver(Observer):
             f"[article body]"
         )
 
-        # Use Anthropic API directly for Claude Sonnet (best long-form prose)
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        # Use OpenAI API for article generation
+        api_key = os.environ.get("OPENAI_API_KEY", "")
         if not api_key:
-            log.error("bretalon_autopublish: ANTHROPIC_API_KEY not set")
+            log.error("bretalon_autopublish: OPENAI_API_KEY not set")
             return None
 
         import urllib.request
         headers = {
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
         payload = {
-            "model": os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+            "model": "gpt-4.1",
             "max_tokens": 8192,
             "temperature": 0.7,
-            "system": BRETALON_IDENTITY,
-            "messages": [{"role": "user", "content": user_prompt}],
+            "messages": [
+                {"role": "system", "content": BRETALON_IDENTITY},
+                {"role": "user", "content": user_prompt},
+            ],
         }
 
         try:
             data = json.dumps(payload).encode()
             req = urllib.request.Request(
-                "https://api.anthropic.com/v1/messages",
+                "https://api.openai.com/v1/chat/completions",
                 data=data, headers=headers,
             )
             with urllib.request.urlopen(req, timeout=600) as resp:
                 result = json.loads(resp.read().decode())
 
-            content = ""
-            for block in result.get("content", []):
-                if block.get("type") == "text":
-                    content += block.get("text", "")
-            content = content.strip()
+            choices = result.get("choices", [])
+            content = choices[0].get("message", {}).get("content", "").strip() if choices else ""
         except Exception as e:
             log.error("bretalon_autopublish: article generation failed: %s", e)
             return None

@@ -4,12 +4,12 @@
 Runs at 8 AM weekdays via the Observer registry:
   1. Fetches today's headlines from major news RSS feeds
   2. Asks Claude to write a structured intelligence brief
-  3. Fact-checks claims via Gemini with Google Search grounding
+  3. Fact-checks claims via Claude on AWS Bedrock
   4. Amends the brief to correct any errors
   5. Sends as HTML email to configured recipients
 
 The AI engine generates the brief. RSS provides the raw material.
-Gemini with Google Search grounding provides fact-checking.
+Claude Bedrock provides fact-checking (knowledge-based, no search grounding).
 """
 
 import json
@@ -51,12 +51,7 @@ class DailySnippetObserver(Observer):
         "Al Jazeera":     "https://www.aljazeera.com/xml/rss/all.xml",
     }
 
-    # Gemini fact-checking
-    GEMINI_MODEL = "gemini-2.0-flash"
-    GEMINI_API_URL = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent"
-    )
+    # Fact-checking via Claude Bedrock (replaced Gemini + Google Search grounding)
 
     # -----------------------------------------------------------------------
     # Observer interface
@@ -88,21 +83,17 @@ class DailySnippetObserver(Observer):
             self.send_telegram(f"[SNIPPET ERROR] {msg}")
             return ObserverResult(success=False, error=msg)
 
-        # 3. Fact-check with Gemini
-        gemini_key = os.environ.get("GEMINI_API_KEY", "")
-        if gemini_key:
-            log.info("Running Gemini fact-check with Google Search grounding...")
-            fact_results = self.fact_check_with_gemini(brief, gemini_key)
+        # 3. Fact-check with Claude Bedrock
+        log.info("Running Claude Bedrock fact-check...")
+        fact_results = self.fact_check_with_claude(brief)
 
-            if fact_results.get("issues"):
-                log.info(
-                    "Amending brief (%d issues)...", len(fact_results["issues"])
-                )
-                brief = self.amend_brief(brief, fact_results)
-            else:
-                log.info("Brief passed fact-check -- no amendments needed")
+        if fact_results.get("issues"):
+            log.info(
+                "Amending brief (%d issues)...", len(fact_results["issues"])
+            )
+            brief = self.amend_brief(brief, fact_results)
         else:
-            log.warning("GEMINI_API_KEY not set -- skipping fact-check")
+            log.info("Brief passed fact-check -- no amendments needed")
 
         # Clean up SKIP_QUOTE
         brief = brief.replace("SKIP_QUOTE", "").strip()
@@ -218,7 +209,7 @@ class DailySnippetObserver(Observer):
                 line += f" -- {h['summary']}"
             headline_text += line + "\n"
 
-        return f"""You are writing a daily intelligence brief for a small strategic advisory firm. Today is {date_str}.
+        return f"""You are writing a daily intelligence brief for a small strategic advisory firm. Today is {date_str}. This is the actual current date — trust it completely. Do NOT treat events or documents dated 2025 or 2026 as speculative or forward-looking simply because they are near your training cutoff. They are real and current.
 
 Here are today's news headlines from major sources:
 
@@ -294,20 +285,22 @@ FACTUAL COMPLETENESS:
     # Gemini fact-checking
     # -----------------------------------------------------------------------
 
-    def fact_check_with_gemini(self, brief_text: str, api_key: str) -> dict:
-        """Verify factual claims in the brief using Gemini with Google Search grounding.
+    def fact_check_with_claude(self, brief_text: str) -> dict:
+        """Verify factual claims in the brief using Claude on AWS Bedrock.
 
         Returns dict with 'corrections' (list), 'issues' (list), and 'raw_result' (str).
+        Note: Claude does not have Google Search grounding — fact-checking relies on
+        Claude's training knowledge. Less real-time but eliminates Gemini dependency.
         """
-        prompt = f"""You have access to Google Search. USE IT to verify FACTUAL CLAIMS in this intelligence brief.
+        prompt = f"""Verify FACTUAL CLAIMS in this intelligence brief using your knowledge.
 
-WHAT TO CHECK (search for each):
-- The QUOTE -- is this a real, documented, word-for-word quote? SEARCH for the exact quote text. If fabricated or paraphrased, mark INCORRECT.
-- The ON THIS DAY section -- is the date, event, and every detail correct? SEARCH to verify.
-- People's names, roles, and titles (SEARCH to verify current positions)
-- Specific numbers, statistics, dollar amounts, vote counts (SEARCH to confirm)
-- Specific events claimed to have happened (SEARCH to verify they occurred)
-- Descriptions of people involved in events -- SEARCH to verify biological sex, gender identity, ethnicity, nationality, and other identity facts. If the brief describes someone as "man" or "woman" but they are transgender, mark INCORRECT and provide the factually complete description (e.g. "trans woman, biological male"). Omitting material identity facts is a factual error.
+WHAT TO CHECK:
+- The QUOTE -- is this a real, documented, word-for-word quote? If fabricated or paraphrased, mark INCORRECT.
+- The ON THIS DAY section -- is the date, event, and every detail correct?
+- People's names, roles, and titles (verify current positions)
+- Specific numbers, statistics, dollar amounts, vote counts
+- Specific events claimed to have happened
+- Descriptions of people involved in events -- verify biological sex, gender identity, ethnicity, nationality, and other identity facts. If the brief describes someone as "man" or "woman" but they are transgender, mark INCORRECT and provide the factually complete description. Omitting material identity facts is a factual error.
 
 WHAT NOT TO CHECK:
 - Lines starting with -> (these are strategic analysis/commentary, not factual claims)
@@ -319,45 +312,25 @@ BRIEF TO VERIFY:
 
 Return ONLY a JSON array with verification results for FACTUAL CLAIMS ONLY:
 [
-  {{"claim": "exact claim text", "status": "VERIFIED", "correction": "", "source": "URL from search"}},
-  {{"claim": "exact claim text", "status": "INCORRECT", "correction": "correct info found via search", "source": "URL"}}
+  {{"claim": "exact claim text", "status": "VERIFIED", "correction": ""}},
+  {{"claim": "exact claim text", "status": "INCORRECT", "correction": "correct info from your knowledge"}}
 ]
 
 IMPORTANT:
-- You MUST use Google Search to verify each claim. Do not guess or say "unable to verify".
-- Only include claims you actually searched for and found evidence about.
 - The QUOTE is the highest priority -- fabricated quotes are unacceptable.
 - Do NOT include analysis lines (->) in your results.
-- If a claim cannot be found via search, omit it from results rather than marking it UNVERIFIABLE."""
-
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "tools": [{"google_search": {}}],
-            "generationConfig": {"temperature": 0.1},
-        }
-
-        url = f"{self.GEMINI_API_URL}?key={api_key}"
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            url, data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+- Only flag claims you are confident are wrong. If uncertain, omit rather than guessing.
+- Be conservative -- only mark INCORRECT if you are sure."""
 
         try:
-            resp = urllib.request.urlopen(req, timeout=120)
-            result = json.loads(resp.read())
+            text = self.call_claude(prompt, timeout=120)
         except Exception as e:
-            log.error("Gemini fact-check failed: %s", e)
+            log.error("Claude fact-check failed: %s", e)
             return {"corrections": [], "issues": [], "raw_result": f"ERROR: {e}"}
 
-        # Extract text from response
-        text = ""
-        try:
-            text = result["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError):
-            log.error("Gemini returned unexpected format")
-            return {"corrections": [], "issues": [], "raw_result": str(result)[:500]}
+        if not text:
+            log.error("Claude returned empty fact-check response")
+            return {"corrections": [], "issues": [], "raw_result": ""}
 
         # Parse JSON from response (may be wrapped in markdown code fences)
         json_text = text.strip()
@@ -374,7 +347,7 @@ IMPORTANT:
                 try:
                     corrections = json.loads(match.group())
                 except json.JSONDecodeError:
-                    log.warning("Could not parse fact-check JSON from Gemini")
+                    log.warning("Could not parse fact-check JSON from Claude")
 
         # Filter to only actionable problems
         issues = [c for c in corrections if c.get("status") in ("INCORRECT", "OUTDATED")]
