@@ -20,8 +20,13 @@ build/
 # State
 .state/
 
-# Credentials
+# Credentials & Secrets
 observers/email_accounts.json
+*.pem
+*.key
+*credentials*.json
+*token*.json
+*secret*.json
 
 # IDE
 .vscode/

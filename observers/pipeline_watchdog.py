@@ -47,8 +47,8 @@ DAILY_REPORT_STATE = Path(os.environ.get(
 OUTPUT_DIR = Path("/output/daily")
 
 # TC Tailscale IP for SSH checks
-TC_HOST = os.environ.get("TC_SSH_HOST", "REDACTED_TAILSCALE_IP")
-VLLM_URL = os.environ.get("VLLM_URL", "http://REDACTED_TAILSCALE_IP:8200/health")
+TC_HOST = os.environ.get("TC_SSH_HOST", "localhost")
+VLLM_URL = os.environ.get("VLLM_URL", "http://localhost:8200/health")
 
 
 class PipelineWatchdog(Observer):

@@ -630,7 +630,7 @@ def _exec_make_phone_call(args: dict, **_kwargs) -> tuple[str, list[str]]:
     if not phone_number.startswith("+"):
         return "Error: phone_number must be in E.164 format (+44...)", []
 
-    hal_phone_url = os.environ.get("HAL_PHONE_URL", "http://REDACTED_TAILSCALE_IP:5590")
+    hal_phone_url = os.environ.get("HAL_PHONE_URL", "http://localhost:5590")
     log.info("Tool make_phone_call: %s (purpose=%s)", phone_number, purpose)
 
     # Initiate call with wait=true (blocks until call completes, up to 5 min)

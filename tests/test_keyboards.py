@@ -172,7 +172,7 @@ class TestIsInfraResponse:
         assert _is_infra_response("The docker container failed to start")
 
     def test_ssh_timeout(self):
-        assert _is_infra_response("ssh connection timeout to 198.51.100.10")
+        assert _is_infra_response("ssh connection timeout to 198.51.100.185")
 
     def test_cpu_high(self):
         assert _is_infra_response("CPU load is high at 98% on tensor-core")
