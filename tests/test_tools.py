@@ -23,6 +23,7 @@ with patch.dict("os.environ", {
         _exec_edit_file,
         _exec_glob,
         _exec_grep,
+        _exec_spawn_subagent,
         _truncate,
         MAX_OUTPUT_CHARS,
     )
@@ -34,8 +35,8 @@ with patch.dict("os.environ", {
 
 class TestToolSchemas:
 
-    def test_nine_tools_defined(self):
-        assert len(TOOL_SCHEMAS) == 9
+    def test_sixteen_tools_defined(self):
+        assert len(TOOL_SCHEMAS) == 16
 
     def test_all_have_function_format(self):
         for schema in TOOL_SCHEMAS:
@@ -49,7 +50,9 @@ class TestToolSchemas:
         names = {s["function"]["name"] for s in TOOL_SCHEMAS}
         assert names == {
             "bash", "read_file", "write_file", "edit_file",
-            "glob", "grep", "web_search", "make_phone_call", "einherjar_dispatch",
+            "glob", "grep", "web_search", "web_fetch", "make_phone_call", "einherjar_dispatch",
+            "enter_plan_mode", "exit_plan_mode", "spawn_subagent",
+            "create_task", "update_task", "list_tasks",
         }
 
     def test_required_params(self):
@@ -62,8 +65,15 @@ class TestToolSchemas:
             "glob": ["pattern"],
             "grep": ["pattern"],
             "web_search": ["query"],
+            "web_fetch": ["url"],
             "make_phone_call": ["phone_number", "purpose"],
             "einherjar_dispatch": ["task"],
+            "enter_plan_mode": ["reason"],
+            "exit_plan_mode": ["plan_summary"],
+            "spawn_subagent": ["task"],
+            "create_task": ["title"],
+            "update_task": ["task_id"],
+            "list_tasks": [],
         }
         for schema in TOOL_SCHEMAS:
             name = schema["function"]["name"]
@@ -388,3 +398,43 @@ class TestExecuteTool:
     def test_timeout_passed_through(self):
         result, _ = execute_tool("bash", {"command": "sleep 10"}, timeout=1)
         assert "timed out" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# Plan mode enforcement
+# ---------------------------------------------------------------------------
+
+class TestSubagentNesting:
+
+    def test_subagent_blocks_nesting(self):
+        """Subagents cannot spawn further subagents."""
+        from backends.tools import _exec_spawn_subagent, _tool_context
+        _tool_context.is_subagent = True
+        try:
+            result, files = _exec_spawn_subagent({"task": "nested task"})
+            assert "cannot spawn further subagents" in result
+            assert files == []
+        finally:
+            _tool_context.is_subagent = False
+
+    def test_subagent_empty_task(self):
+        """Empty task returns error."""
+        from backends.tools import _exec_spawn_subagent
+        result, files = _exec_spawn_subagent({"task": ""})
+        assert "error" in result.lower()
+        assert files == []
+
+
+class TestPlanMode:
+
+    def test_plan_mode_blocks_write_tools(self):
+        """Plan mode blocks bash, write_file, edit_file."""
+        from backends.tools import set_plan_mode, execute_tool
+        set_plan_mode(True)
+        try:
+            result, _ = execute_tool("bash", {"command": "echo test"})
+            assert "blocked in plan mode" in result
+            result, _ = execute_tool("read_file", {"file_path": "/dev/null"})
+            assert "blocked" not in result  # read should work
+        finally:
+            set_plan_mode(False)

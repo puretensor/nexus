@@ -11,6 +11,7 @@ Bedrock Converse API docs:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 
@@ -291,6 +292,168 @@ class BedrockAPIBackend:
         assistant_msg = {"role": "assistant", "content": anthropic_blocks}
         return ("\n".join(text_parts).strip(), tool_calls, assistant_msg)
 
+    def _consume_stream(self, event_stream, streaming_editor=None, loop=None) -> tuple[str, list, dict]:
+        """Consume a Bedrock converse_stream EventStream.
+
+        Streams text deltas to streaming_editor if provided (scheduled on
+        the given asyncio event loop via run_coroutine_threadsafe, since
+        this method runs in a thread-pool executor).
+
+        Returns (text, tool_calls, assistant_msg) — same shape as _parse_response().
+        """
+        text_parts: list[str] = []
+        tool_calls: list[ToolCall] = []
+        anthropic_blocks: list[dict] = []
+
+        # Per-block accumulators
+        current_block_type: str | None = None  # "text", "toolUse", "thinking"
+        current_text_buf: list[str] = []
+        current_tool_id: str = ""
+        current_tool_name: str = ""
+        current_tool_input_chunks: list[str] = []
+        current_thinking_buf: list[str] = []
+        current_thinking_signature: str = ""
+
+        usage: dict = {}
+        stop_reason: str = ""
+
+        def _flush_block():
+            """Finalize the current content block and append to outputs."""
+            nonlocal current_block_type
+            if current_block_type == "text":
+                joined = "".join(current_text_buf)
+                if joined:
+                    text_parts.append(joined)
+                    anthropic_blocks.append({"type": "text", "text": joined})
+                current_text_buf.clear()
+            elif current_block_type == "toolUse":
+                raw_input = "".join(current_tool_input_chunks)
+                try:
+                    parsed_input = json.loads(raw_input) if raw_input else {}
+                except json.JSONDecodeError:
+                    log.warning("Failed to parse tool input JSON: %s", raw_input[:200])
+                    parsed_input = {}
+                tool_calls.append(ToolCall(
+                    id=current_tool_id,
+                    name=current_tool_name,
+                    arguments=parsed_input,
+                ))
+                anthropic_blocks.append({
+                    "type": "tool_use",
+                    "id": current_tool_id,
+                    "name": current_tool_name,
+                    "input": parsed_input,
+                })
+                current_tool_input_chunks.clear()
+            elif current_block_type == "thinking":
+                joined = "".join(current_thinking_buf)
+                anthropic_blocks.append({
+                    "type": "thinking",
+                    "thinking": joined,
+                    "signature": current_thinking_signature,
+                })
+                current_thinking_buf.clear()
+            current_block_type = None
+
+        try:
+            for event in event_stream:
+                # --- messageStart ---
+                if "messageStart" in event:
+                    pass  # role info, nothing to accumulate
+
+                # --- contentBlockStart ---
+                elif "contentBlockStart" in event:
+                    # Flush any previous block (shouldn't happen mid-stream, but safety)
+                    if current_block_type is not None:
+                        _flush_block()
+
+                    start = event["contentBlockStart"].get("start", {})
+                    if "toolUse" in start:
+                        current_block_type = "toolUse"
+                        current_tool_id = start["toolUse"].get("toolUseId", "")
+                        current_tool_name = start["toolUse"].get("name", "")
+                        current_tool_input_chunks.clear()
+                    elif "reasoningContent" in start:
+                        current_block_type = "thinking"
+                        current_thinking_buf.clear()
+                        current_thinking_signature = ""
+                    else:
+                        current_block_type = "text"
+                        current_text_buf.clear()
+
+                # --- contentBlockDelta ---
+                elif "contentBlockDelta" in event:
+                    delta = event["contentBlockDelta"].get("delta", {})
+
+                    if "text" in delta and current_block_type == "text":
+                        chunk = delta["text"]
+                        current_text_buf.append(chunk)
+                        if streaming_editor and loop:
+                            future = asyncio.run_coroutine_threadsafe(
+                                streaming_editor.add_text(chunk), loop
+                            )
+                            # Don't block long — editor is best-effort
+                            try:
+                                future.result(timeout=2)
+                            except Exception:
+                                pass
+
+                    elif "toolUse" in delta and current_block_type == "toolUse":
+                        input_fragment = delta["toolUse"].get("input", "")
+                        if input_fragment:
+                            current_tool_input_chunks.append(input_fragment)
+
+                    elif "reasoningContent" in delta and current_block_type == "thinking":
+                        rc = delta["reasoningContent"]
+                        if "text" in rc:
+                            current_thinking_buf.append(rc["text"])
+                        if "signature" in rc:
+                            current_thinking_signature = rc["signature"]
+
+                # --- contentBlockStop ---
+                elif "contentBlockStop" in event:
+                    _flush_block()
+
+                # --- messageStop ---
+                elif "messageStop" in event:
+                    stop_reason = event["messageStop"].get("stopReason", "")
+
+                # --- metadata (usage) ---
+                elif "metadata" in event:
+                    usage = event["metadata"].get("usage", {})
+
+                # --- error events ---
+                elif "internalServerException" in event:
+                    raise RuntimeError(
+                        f"Bedrock stream error: {event['internalServerException'].get('message', 'internal server error')}"
+                    )
+                elif "modelStreamErrorException" in event:
+                    raise RuntimeError(
+                        f"Bedrock model stream error: {event['modelStreamErrorException'].get('message', 'model stream error')}"
+                    )
+                elif "throttlingException" in event:
+                    raise RuntimeError(
+                        f"Bedrock throttling: {event['throttlingException'].get('message', 'throttled')}"
+                    )
+                elif "validationException" in event:
+                    raise RuntimeError(
+                        f"Bedrock validation error: {event['validationException'].get('message', 'validation error')}"
+                    )
+
+        except RuntimeError:
+            raise
+        except Exception as e:
+            log.error("Error consuming Bedrock stream: %s", e)
+            raise
+
+        # Log usage if we got it
+        if usage:
+            model_id = self._default_model
+            _log_bedrock_usage(usage, model_id, "bedrock-stream")
+
+        assistant_msg = {"role": "assistant", "content": anthropic_blocks}
+        return ("\n".join(text_parts).strip(), tool_calls, assistant_msg)
+
     @staticmethod
     def _format_tool_result(tool_name: str, call_id: str, result_str: str) -> dict:
         """Format tool result in Anthropic-compatible format for history."""
@@ -371,6 +534,30 @@ class BedrockAPIBackend:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, lambda: self._client.converse(**kwargs))
 
+    async def _stream_request(
+        self,
+        messages: list[dict],
+        model_id: str,
+        streaming_editor=None,
+        **system_kw,
+    ) -> tuple[str, list, dict]:
+        """Send request via converse_stream and consume with streaming.
+
+        Returns (text, tool_calls, assistant_msg) — same as _parse_response().
+        """
+        kwargs = self._build_converse_kwargs(model_id, messages, **system_kw)
+        loop = asyncio.get_event_loop()
+
+        def _sync_stream():
+            response = self._client.converse_stream(**kwargs)
+            return self._consume_stream(
+                response["stream"],
+                streaming_editor=streaming_editor,
+                loop=loop,
+            )
+
+        return await loop.run_in_executor(None, _sync_stream)
+
     # ------------------------------------------------------------------
     # Sync call (for observers)
     # ------------------------------------------------------------------
@@ -388,7 +575,32 @@ class BedrockAPIBackend:
         session_id = session_id or str(uuid.uuid4())
         model_id = self._resolve_model(model)
 
+        # Cap maxTokens for non-streaming converse() — Bedrock limit is 21333
+        original_max = self._max_tokens
+        self._max_tokens = min(self._max_tokens, 21333)
+        try:
+            return self._call_sync_inner(
+                prompt, model_id=model_id, session_id=session_id,
+                timeout=timeout, system_prompt=system_prompt,
+                memory_context=memory_context,
+            )
+        finally:
+            self._max_tokens = original_max
+
+    def _call_sync_inner(
+        self,
+        prompt: str,
+        *,
+        model_id: str,
+        session_id: str,
+        timeout: int,
+        system_prompt: str | None,
+        memory_context: str | None,
+    ) -> dict:
+        from context_compression import compress_tool_results, compress_history
         history = _sanitize_history(get_conversation_history(session_id))
+        history = compress_tool_results(history)
+        history = compress_history(history)
         messages = history + [{"role": "user", "content": prompt}]
 
         system_kw = dict(
@@ -454,7 +666,10 @@ class BedrockAPIBackend:
         session_id = session_id or str(uuid.uuid4())
         model_id = self._resolve_model(model)
 
+        from context_compression import compress_tool_results, compress_history
         history = _sanitize_history(get_conversation_history(session_id))
+        history = compress_tool_results(history)
+        history = compress_history(history)
         messages = history + [{"role": "user", "content": message}]
 
         system_kw = dict(
@@ -463,6 +678,15 @@ class BedrockAPIBackend:
             extra_system_prompt=extra_system_prompt,
         )
 
+        # Build a combined send+parse that streams text to the editor.
+        # Used by the tool loop instead of separate send_request + parse_response.
+        async def send_and_parse_stream(msgs, editor):
+            return await self._stream_request(
+                msgs, model_id, streaming_editor=editor, **system_kw,
+            )
+
+        # Fallback send_request for the tool loop (used only if
+        # send_and_parse_stream is not available — kept for interface compat)
         async def send_request(msgs):
             return await self._converse_async(model_id, msgs, **system_kw)
 
@@ -479,6 +703,7 @@ class BedrockAPIBackend:
                     cwd=self._cwd,
                     streaming_editor=streaming_editor,
                     on_progress=on_progress,
+                    send_and_parse_stream=send_and_parse_stream,
                 )
             except Exception as e:
                 log.error("Bedrock tool loop error (async): %s", e)
@@ -491,13 +716,14 @@ class BedrockAPIBackend:
             result["session_id"] = session_id
             return result
 
-        # No tools — single request
+        # No tools — single streaming request
         try:
-            resp = await send_request(messages)
+            text, _tool_calls, _assistant_msg = await send_and_parse_stream(
+                messages, streaming_editor,
+            )
         except Exception as e:
             return {"result": f"Bedrock error: {e}", "session_id": session_id, "written_files": []}
 
-        text, _tool_calls, _assistant_msg = self._parse_response(resp)
         if text:
             save_conversation_history(session_id, messages + [
                 {"role": "assistant", "content": text}

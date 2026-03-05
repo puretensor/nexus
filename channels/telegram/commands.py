@@ -141,7 +141,7 @@ async def cmd_opus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Switch to Bedrock API backend for Claude models
     import config
     from backends import reset_backend
-    if config.ENGINE_BACKEND not in ("bedrock_api", "anthropic_api"):
+    if config.ENGINE_BACKEND not in ("bedrock_api", "anthropic_api", "hybrid"):
         config.ENGINE_BACKEND = "bedrock_api"
         reset_backend()
     update_model(chat_id, "opus")
@@ -154,7 +154,7 @@ async def cmd_sonnet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Switch to Bedrock API backend for Claude models
     import config
     from backends import reset_backend
-    if config.ENGINE_BACKEND not in ("bedrock_api", "anthropic_api"):
+    if config.ENGINE_BACKEND not in ("bedrock_api", "anthropic_api", "hybrid"):
         config.ENGINE_BACKEND = "bedrock_api"
         reset_backend()
     update_model(chat_id, "sonnet")

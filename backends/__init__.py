@@ -26,6 +26,7 @@ def get_backend():
         "bedrock_api": ("backends.bedrock_api", "BedrockAPIBackend"),
         "codex_cli": ("backends.codex_cli", "CodexCLIBackend"),
         "gemini_cli": ("backends.gemini_cli", "GeminiCLIBackend"),
+        "hybrid": ("backends.hybrid", "HybridBackend"),
         "vllm": ("backends.vllm", "VLLMBackend"),
     }
 

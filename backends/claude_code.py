@@ -1,9 +1,15 @@
-"""Claude Code CLI backend — subprocess-based invocation."""
+"""Claude Code CLI backend — subprocess-based invocation.
+
+Supports local (in-pod) and remote (SSH to tensor-core) modes.
+Remote mode is enabled by HYBRID_CLI_REMOTE=true, which wraps the
+claude command in an SSH call to HYBRID_TC_HOST.
+"""
 
 import asyncio
 import json
 import logging
 import os
+import shlex
 import subprocess
 
 from config import CLAUDE_BIN, CLAUDE_CWD, TIMEOUT
@@ -18,6 +24,12 @@ _CLI_ENV = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
 
 class ClaudeCodeBackend:
     """Backend that shells out to the Claude Code CLI."""
+
+    def __init__(self):
+        self._remote = os.environ.get("HYBRID_CLI_REMOTE", "").lower() in ("true", "1", "yes")
+        self._tc_host = os.environ.get("HYBRID_TC_HOST", "tensor-core")
+        if self._remote:
+            log.info("ClaudeCodeBackend: remote mode enabled (host=%s)", self._tc_host)
 
     @property
     def name(self) -> str:
@@ -39,6 +51,67 @@ class ClaudeCodeBackend:
         _LABELS = {"opus": "Claude Opus", "sonnet": "Claude Sonnet", "haiku": "Claude Haiku"}
         return _LABELS.get(model, f"Claude ({model})")
 
+    def _build_cmd(
+        self,
+        message: str,
+        *,
+        output_format: str = "json",
+        model: str = "sonnet",
+        session_id: str | None = None,
+        system_prompt: str | None = None,
+        memory_context: str | None = None,
+        extra_system_prompt: str | None = None,
+        verbose: bool = False,
+        include_partial: bool = False,
+    ) -> list[str]:
+        """Build the CLI command, wrapping in SSH for remote mode."""
+        if self._remote:
+            # Build remote command as a single string for SSH
+            remote_cmd = (
+                f"claude -p {shlex.quote(message)} "
+                f"--output-format {output_format} "
+                f"--dangerously-skip-permissions "
+                f"--model {model}"
+            )
+            if verbose:
+                remote_cmd += " --verbose"
+            if include_partial:
+                remote_cmd += " --include-partial-messages"
+            if session_id:
+                remote_cmd += f" --resume {session_id}"
+            if system_prompt:
+                remote_cmd += f" --append-system-prompt {shlex.quote(system_prompt)}"
+            if memory_context:
+                remote_cmd += f" --append-system-prompt {shlex.quote(memory_context)}"
+            if extra_system_prompt:
+                remote_cmd += f" --append-system-prompt {shlex.quote(extra_system_prompt)}"
+
+            return [
+                "ssh", "-o", "StrictHostKeyChecking=accept-new",
+                self._tc_host, remote_cmd,
+            ]
+
+        # Local execution
+        cmd = [
+            CLAUDE_BIN, "-p", message,
+            "--output-format", output_format,
+            "--dangerously-skip-permissions",
+            "--model", model,
+        ]
+        if verbose:
+            cmd.append("--verbose")
+        if include_partial:
+            cmd.append("--include-partial-messages")
+        if session_id:
+            cmd.extend(["--resume", session_id])
+        if system_prompt:
+            cmd.extend(["--append-system-prompt", system_prompt])
+        if memory_context:
+            cmd.extend(["--append-system-prompt", memory_context])
+        if extra_system_prompt:
+            cmd.extend(["--append-system-prompt", extra_system_prompt])
+        return cmd
+
     def call_sync(
         self,
         prompt: str,
@@ -53,19 +126,11 @@ class ClaudeCodeBackend:
 
         Returns {"result": str, "session_id": str | None}
         """
-        cmd = [
-            CLAUDE_BIN,
-            "-p", prompt,
-            "--output-format", "json",
-            "--dangerously-skip-permissions",
-            "--model", model,
-        ]
-        if session_id:
-            cmd.extend(["--resume", session_id])
-        if system_prompt:
-            cmd.extend(["--append-system-prompt", system_prompt])
-        if memory_context:
-            cmd.extend(["--append-system-prompt", memory_context])
+        cmd = self._build_cmd(
+            prompt, output_format="json", model=model,
+            session_id=session_id, system_prompt=system_prompt,
+            memory_context=memory_context,
+        )
 
         log.info("Running (sync): %s", " ".join(cmd[:6]) + " ...")
 
@@ -113,23 +178,12 @@ class ClaudeCodeBackend:
         """
         from engine import _read_stream
 
-        cmd = [
-            CLAUDE_BIN,
-            "-p", message,
-            "--output-format", "stream-json",
-            "--verbose",
-            "--dangerously-skip-permissions",
-            "--model", model,
-            "--include-partial-messages",
-        ]
-        if session_id:
-            cmd.extend(["--resume", session_id])
-        if system_prompt:
-            cmd.extend(["--append-system-prompt", system_prompt])
-        if memory_context:
-            cmd.extend(["--append-system-prompt", memory_context])
-        if extra_system_prompt:
-            cmd.extend(["--append-system-prompt", extra_system_prompt])
+        cmd = self._build_cmd(
+            message, output_format="stream-json", model=model,
+            session_id=session_id, system_prompt=system_prompt,
+            memory_context=memory_context, extra_system_prompt=extra_system_prompt,
+            verbose=True, include_partial=True,
+        )
 
         log.info("Running (streaming): %s", " ".join(cmd[:6]) + " ...")
 

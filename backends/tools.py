@@ -1,7 +1,7 @@
 """Tool registry and shared tool loop for all backends.
 
-Provides seven core tools matching Claude Code's toolset:
-bash, read_file, write_file, edit_file, glob, grep, web_search.
+Provides eight core tools matching Claude Code's toolset:
+bash, read_file, write_file, edit_file, glob, grep, web_search, web_fetch.
 
 Each tool has an OpenAI-compatible JSON schema and a Python executor
 that returns (result_string, written_files_list).
@@ -27,6 +27,22 @@ import urllib.request
 from dataclasses import dataclass, field
 
 log = logging.getLogger("nexus")
+
+import threading
+
+# Thread-local context for plan mode (safe for concurrent conversations)
+_tool_context = threading.local()
+
+def is_plan_mode() -> bool:
+    """Check if current thread is in plan mode."""
+    return getattr(_tool_context, "plan_mode", False)
+
+def set_plan_mode(active: bool):
+    """Set plan mode for current thread."""
+    _tool_context.plan_mode = active
+
+# Tools that are blocked in plan mode
+_WRITE_TOOLS = frozenset({"bash", "write_file", "edit_file"})
 
 # Max chars returned from any single tool execution
 MAX_OUTPUT_CHARS = 32000
@@ -194,6 +210,66 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "web_fetch",
+            "description": "Fetch the content of a URL and return it as readable text. HTML is automatically converted to plain text. Use for reading documentation, verifying deployments, checking API responses, or scraping pages.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to fetch (http or https)",
+                    },
+                    "headers": {
+                        "type": "object",
+                        "description": "Optional HTTP headers as key-value pairs",
+                    },
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "enter_plan_mode",
+            "description": (
+                "Switch to plan mode for read-only exploration. In plan mode you can "
+                "read files, search, and reason — but CANNOT run bash, write, or edit. "
+                "Use before non-trivial tasks to design your approach. Call exit_plan_mode "
+                "when ready to implement."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Why you are entering plan mode",
+                    },
+                },
+                "required": ["reason"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "exit_plan_mode",
+            "description": "Exit plan mode and return to full execution mode.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "plan_summary": {
+                        "type": "string",
+                        "description": "Brief summary of your plan (1-3 sentences)",
+                    },
+                },
+                "required": ["plan_summary"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "make_phone_call",
             "description": (
                 "Make an outbound phone call via HAL. Use for booking/cancelling "
@@ -260,6 +336,91 @@ TOOL_SCHEMAS = [
                     },
                 },
                 "required": ["task"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "spawn_subagent",
+            "description": (
+                "Spawn a parallel subagent to handle a focused subtask. The subagent "
+                "gets its own conversation context and tool access. Use this to "
+                "parallelize independent research tasks, delegate focused analysis, "
+                "or run concurrent operations. The subagent cannot spawn further "
+                "subagents. Returns the subagent's final text response."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "description": "Clear, complete description of what the subagent should do",
+                    },
+                    "tools": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional: restrict subagent to specific tools. "
+                            "Default: all read-only tools (read_file, glob, grep, "
+                            "web_search, web_fetch). Add 'bash', 'write_file', 'edit_file' "
+                            "explicitly if the subagent needs write access."
+                        ),
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": (
+                            "Optional: model to use. Default: same as parent. "
+                            "Use 'haiku' for cheaper research tasks."
+                        ),
+                    },
+                },
+                "required": ["task"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_task",
+            "description": "Create a tracked task for multi-step work. Tasks persist across sessions.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Brief actionable title"},
+                    "description": {"type": "string", "description": "Detailed description and acceptance criteria"},
+                    "priority": {"type": "string", "enum": ["low", "medium", "high", "critical"], "description": "Task priority (default: medium)"},
+                },
+                "required": ["title"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_task",
+            "description": "Update a task's status or append notes. Use to track progress.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "integer", "description": "Task ID to update"},
+                    "status": {"type": "string", "enum": ["pending", "in_progress", "done", "cancelled"], "description": "New status"},
+                    "notes": {"type": "string", "description": "Notes to append (progress, blockers, results)"},
+                },
+                "required": ["task_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_tasks",
+            "description": "List tracked tasks, optionally filtered by status.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["pending", "in_progress", "done", "cancelled", "active", "all"], "description": "Filter (default: active = pending + in_progress)"},
+                },
             },
         },
     },
@@ -428,7 +589,7 @@ def _exec_glob(args: dict, **_kwargs) -> tuple[str, list[str]]:
 
 
 def _exec_grep(args: dict, *, cwd: str | None = None, **_kwargs) -> tuple[str, list[str]]:
-    """Search file contents with grep. Returns (matching lines, [])."""
+    """Search file contents with ripgrep. Returns (matching lines, [])."""
     pattern = args.get("pattern", "")
     if not pattern:
         return "Error: no pattern provided", []
@@ -436,9 +597,9 @@ def _exec_grep(args: dict, *, cwd: str | None = None, **_kwargs) -> tuple[str, l
     search_path = args.get("path") or cwd or os.getcwd()
     include = args.get("include")
 
-    cmd = ["grep", "-rn"]
+    cmd = ["rg", "-n", "--no-ignore", "--no-messages"]
     if include:
-        cmd.extend(["--include", include])
+        cmd.extend(["--glob", include])
     cmd.extend(["--", pattern, search_path])
 
     try:
@@ -446,7 +607,7 @@ def _exec_grep(args: dict, *, cwd: str | None = None, **_kwargs) -> tuple[str, l
             cmd,
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=30,
         )
         output = result.stdout
         if not output:
@@ -459,7 +620,7 @@ def _exec_grep(args: dict, *, cwd: str | None = None, **_kwargs) -> tuple[str, l
 
         return _truncate(output), []
     except subprocess.TimeoutExpired:
-        return "Error: grep timed out after 15s", []
+        return "Error: search timed out after 30s", []
     except Exception as e:
         return f"Error in grep: {e}", []
 
@@ -579,6 +740,68 @@ def _parse_ddg_html(raw_html: str, max_results: int) -> list[dict]:
     return results
 
 
+def _html_to_text(html: str) -> str:
+    """Convert HTML to readable plain text via regex stripping."""
+    # Remove script, style, nav, footer blocks entirely
+    text = re.sub(r"<(script|style|nav|footer)[^>]*>.*?</\1>", "", html, flags=re.DOTALL | re.IGNORECASE)
+    # Convert block elements to newlines
+    text = re.sub(r"<(br|hr|/p|/div|/h[1-6]|/li|/tr)[^>]*>", "\n", text, flags=re.IGNORECASE)
+    # Convert list items to bullet points
+    text = re.sub(r"<li[^>]*>", "\n• ", text, flags=re.IGNORECASE)
+    # Strip all remaining tags
+    text = re.sub(r"<[^>]+>", "", text)
+    # Decode HTML entities
+    text = html_mod.unescape(text)
+    # Collapse whitespace: multiple blank lines to two, trailing spaces
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _exec_web_fetch(args: dict, **_kwargs) -> tuple[str, list[str]]:
+    """Fetch a URL and return content as text. HTML is stripped to plain text."""
+    url = args.get("url", "").strip()
+    if not url:
+        return "Error: no url provided", []
+
+    if not url.startswith(("http://", "https://")):
+        return "Error: url must start with http:// or https://", []
+
+    custom_headers = args.get("headers") or {}
+    max_bytes = MAX_OUTPUT_CHARS * 2  # 64KB raw — room for HTML stripping
+
+    log.info("Tool web_fetch: %s", url[:120])
+
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+        }
+        headers.update(custom_headers)
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = resp.read(max_bytes)
+            content_type = resp.headers.get("Content-Type", "")
+
+            # Detect charset
+            charset = "utf-8"
+            if "charset=" in content_type:
+                charset = content_type.split("charset=")[-1].split(";")[0].strip()
+
+            text = raw.decode(charset, errors="replace")
+
+            # Strip HTML to plain text if content is HTML
+            if "html" in content_type.lower():
+                text = _html_to_text(text)
+
+            return _truncate(text or "(empty response)"), []
+    except urllib.error.HTTPError as e:
+        return f"Error: HTTP {e.code} {e.reason} fetching {url}", []
+    except urllib.error.URLError as e:
+        return f"Error: could not reach {url}: {e.reason}", []
+    except Exception as e:
+        return f"Error fetching {url}: {e}", []
+
+
 def _exec_einherjar_dispatch(args: dict, **_kwargs) -> tuple[str, list[str]]:
     """Dispatch a task to the EINHERJAR specialist agent swarm."""
     task = args.get("task", "").strip()
@@ -683,6 +906,172 @@ def _exec_make_phone_call(args: dict, **_kwargs) -> tuple[str, list[str]]:
     return _truncate("\n".join(output_lines)), []
 
 
+def _exec_enter_plan_mode(args: dict, **_kwargs) -> tuple[str, list[str]]:
+    """Switch to plan mode (read-only tools)."""
+    reason = args.get("reason", "")
+    set_plan_mode(True)
+    return (
+        f"Plan mode activated. Reason: {reason}\n\n"
+        "READ-ONLY mode: read_file, glob, grep, web_search, web_fetch available.\n"
+        "BLOCKED: bash, write_file, edit_file.\n\n"
+        "Design your plan, then call exit_plan_mode to implement.",
+        [],
+    )
+
+
+def _exec_exit_plan_mode(args: dict, **_kwargs) -> tuple[str, list[str]]:
+    """Exit plan mode, restore full execution."""
+    plan_summary = args.get("plan_summary", "")
+    set_plan_mode(False)
+    return (
+        f"Execution mode restored. Plan: {plan_summary}\n\n"
+        "All tools now available. Proceed with implementation.",
+        [],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Subagent executor
+# ---------------------------------------------------------------------------
+
+_SUBAGENT_DEFAULT_TOOLS = ["read_file", "glob", "grep", "web_search", "web_fetch"]
+_SUBAGENT_MAX_ITERATIONS = int(os.environ.get("SUBAGENT_MAX_ITER", "15"))
+_SUBAGENT_TIMEOUT = int(os.environ.get("SUBAGENT_TIMEOUT", "180"))
+
+
+def _exec_spawn_subagent(args: dict, **_kwargs) -> tuple[str, list[str]]:
+    """Spawn a subagent with its own Bedrock conversation."""
+    task = args.get("task", "").strip()
+    if not task:
+        return "Error: no task provided", []
+
+    if getattr(_tool_context, "is_subagent", False):
+        return "Error: subagents cannot spawn further subagents", []
+
+    requested_tools = args.get("tools") or _SUBAGENT_DEFAULT_TOOLS
+    model = args.get("model") or None
+
+    log.info("Spawning subagent: %s (tools=%s, model=%s)", task[:80], requested_tools, model)
+
+    try:
+        result = _run_subagent(task, requested_tools, model)
+        return _truncate(result), []
+    except Exception as e:
+        log.error("Subagent failed: %s", e)
+        return f"Subagent error: {e}", []
+
+
+def _run_subagent(task: str, tool_names: list[str], model: str | None) -> str:
+    """Run a subagent conversation synchronously via Bedrock."""
+    from backends.bedrock_api import BedrockAPIBackend
+
+    backend = BedrockAPIBackend()
+
+    # Filter tool schemas — exclude spawn_subagent to prevent nesting
+    allowed = set(tool_names)
+    filtered_schemas = [
+        t for t in TOOL_SCHEMAS
+        if t["function"]["name"] in allowed and t["function"]["name"] != "spawn_subagent"
+    ]
+
+    system_prompt = (
+        "You are a focused subagent. Complete the assigned task thoroughly and concisely. "
+        "You cannot spawn further subagents. When done, provide your final answer as text."
+    )
+
+    # Mark thread as subagent context
+    _tool_context.is_subagent = True
+
+    try:
+        # Override backend tools with filtered set
+        from backends.bedrock_api import _bedrock_tools as _orig_bedrock_tools
+        filtered_bedrock_tools = []
+        for t in filtered_schemas:
+            fn = t.get("function", {})
+            params = fn.get("parameters", {"type": "object", "properties": {}})
+            filtered_bedrock_tools.append({
+                "toolSpec": {
+                    "name": fn.get("name", ""),
+                    "description": fn.get("description", ""),
+                    "inputSchema": {"json": params},
+                }
+            })
+
+        # Temporarily swap tools on the backend
+        original_tools = backend._tools
+        original_enabled = backend._tools_enabled
+        backend._tools = filtered_bedrock_tools if filtered_bedrock_tools else None
+        backend._tools_enabled = bool(filtered_bedrock_tools)
+
+        try:
+            result = backend.call_sync(
+                prompt=task,
+                model=model or "sonnet",
+                system_prompt=system_prompt,
+                timeout=_SUBAGENT_TIMEOUT,
+            )
+            return result.get("result", "(no result)")
+        finally:
+            backend._tools = original_tools
+            backend._tools_enabled = original_enabled
+    finally:
+        _tool_context.is_subagent = False
+
+
+# ---------------------------------------------------------------------------
+# Task management executors
+# ---------------------------------------------------------------------------
+
+
+def _exec_create_task(args: dict, **_kwargs) -> tuple[str, list[str]]:
+    """Create a tracked task."""
+    from db import db_create_task
+    title = args.get("title", "").strip()
+    if not title:
+        return "Error: no title provided", []
+    description = args.get("description", "")
+    priority = args.get("priority", "medium")
+    if priority not in ("low", "medium", "high", "critical"):
+        priority = "medium"
+    task_id = db_create_task(title, description, priority)
+    return f"Task #{task_id} created: {title} [{priority}]", []
+
+
+def _exec_update_task(args: dict, **_kwargs) -> tuple[str, list[str]]:
+    """Update a task's status or notes."""
+    from db import db_update_task
+    task_id = args.get("task_id")
+    if task_id is None:
+        return "Error: no task_id provided", []
+    status = args.get("status")
+    notes = args.get("notes")
+    if status is None and notes is None:
+        return "Error: provide 'status' or 'notes' to update", []
+    ok, msg = db_update_task(int(task_id), status=status, notes=notes)
+    if not ok:
+        return f"Error: {msg}", []
+    return msg, []
+
+
+def _exec_list_tasks(args: dict, **_kwargs) -> tuple[str, list[str]]:
+    """List tracked tasks."""
+    from db import db_list_tasks
+    status_filter = args.get("status", "active")
+    tasks = db_list_tasks(status_filter)
+    if not tasks:
+        return f"No tasks found (filter: {status_filter})", []
+    lines = [f"Tasks ({status_filter}):"]
+    for t in tasks:
+        icon = {"critical": "!!!", "high": "!!", "medium": "!", "low": "."}.get(t["priority"], "")
+        lines.append(f"  #{t['id']} [{t['status']}] {icon} {t['title']}")
+        if t.get("notes"):
+            last = t["notes"].strip().split("\n")[-1]
+            if len(last) > 80:
+                last = last[:77] + "..."
+            lines.append(f"      {last}")
+    return "\n".join(lines), []
+
+
 # ---------------------------------------------------------------------------
 # Executor dispatch
 # ---------------------------------------------------------------------------
@@ -695,8 +1084,15 @@ _EXECUTORS = {
     "glob": _exec_glob,
     "grep": _exec_grep,
     "web_search": _exec_web_search,
+    "web_fetch": _exec_web_fetch,
     "make_phone_call": _exec_make_phone_call,
     "einherjar_dispatch": _exec_einherjar_dispatch,
+    "enter_plan_mode": _exec_enter_plan_mode,
+    "exit_plan_mode": _exec_exit_plan_mode,
+    "spawn_subagent": _exec_spawn_subagent,
+    "create_task": _exec_create_task,
+    "update_task": _exec_update_task,
+    "list_tasks": _exec_list_tasks,
 }
 
 
@@ -715,6 +1111,14 @@ def execute_tool(
         timeout: Timeout for bash commands (seconds)
         cwd: Working directory for bash/grep
     """
+    # Plan mode enforcement
+    if is_plan_mode() and name in _WRITE_TOOLS:
+        return (
+            f"Error: '{name}' is blocked in plan mode. "
+            "Use read-only tools or call exit_plan_mode first.",
+            [],
+        )
+
     executor = _EXECUTORS.get(name)
     if executor is None:
         return f"Error: unknown tool '{name}'", []
@@ -757,12 +1161,27 @@ def _format_tool_status(tool_name: str, tool_input: dict) -> str:
         return f"Searching content: {tool_input.get('pattern', '?')}"
     elif tool_name in ("WebSearch", "web_search"):
         return f"Searching web: {tool_input.get('query', '?')}"
+    elif tool_name == "web_fetch":
+        return f"Fetching: {tool_input.get('url', '?')}"
     elif tool_name == "make_phone_call":
         return f"Calling: {tool_input.get('phone_number', '?')}"
     elif tool_name == "einherjar_dispatch":
         agent = tool_input.get("agent") or "auto"
         task = tool_input.get("task", "?")[:60]
         return f"EINHERJAR [{agent}]: {task}"
+    elif tool_name == "enter_plan_mode":
+        return f"Planning: {tool_input.get('reason', '?')}"
+    elif tool_name == "exit_plan_mode":
+        return "Exiting plan mode"
+    elif tool_name == "spawn_subagent":
+        task = tool_input.get("task", "?")[:60]
+        return f"Subagent: {task}"
+    elif tool_name == "create_task":
+        return f"Creating task: {tool_input.get('title', '?')}"
+    elif tool_name == "update_task":
+        return f"Updating task #{tool_input.get('task_id', '?')}"
+    elif tool_name == "list_tasks":
+        return f"Listing tasks ({tool_input.get('status', 'active')})"
     return f"Tool: {tool_name}"
 
 
@@ -844,12 +1263,19 @@ async def run_tool_loop_async(
     cwd: str | None = None,
     streaming_editor=None,
     on_progress=None,
+    send_and_parse_stream=None,
 ) -> dict:
     """Generic async tool loop with tool status updates.
 
     Same interface as run_tool_loop_sync but awaits send_request and runs
     tool execution in a thread pool.  Sends status updates via
     streaming_editor or on_progress callbacks.
+
+    If send_and_parse_stream is provided, it is called instead of the
+    separate send_request + parse_response pair.  Signature:
+        send_and_parse_stream(messages, streaming_editor) -> (text, tool_calls, assistant_msg)
+    This enables streaming responses where send and parse are fused
+    (e.g. Bedrock converse_stream).
     """
     written_files: list[str] = []
     last_text = ""
@@ -860,8 +1286,13 @@ async def run_tool_loop_async(
             log.warning("Tool loop async: total timeout after %d iterations", iteration)
             break
 
-        response = await send_request(messages)
-        text, tool_calls, assistant_msg = parse_response(response)
+        if send_and_parse_stream:
+            text, tool_calls, assistant_msg = await send_and_parse_stream(
+                messages, streaming_editor,
+            )
+        else:
+            response = await send_request(messages)
+            text, tool_calls, assistant_msg = parse_response(response)
         messages.append(assistant_msg)
 
         if text:
@@ -874,25 +1305,53 @@ async def run_tool_loop_async(
                 "written_files": written_files,
             }
 
-        for tc in tool_calls:
-            # Show tool status
-            status = _format_tool_status(tc.name, tc.arguments)
-            if streaming_editor:
-                await streaming_editor.add_tool_status(status)
-            elif on_progress:
-                await on_progress(status)
+        # Parallel execution when all calls are subagents
+        if len(tool_calls) > 1 and all(tc.name == "spawn_subagent" for tc in tool_calls):
+            # Show status for all subagents
+            for tc in tool_calls:
+                status = _format_tool_status(tc.name, tc.arguments)
+                if streaming_editor:
+                    await streaming_editor.add_tool_status(status)
+                elif on_progress:
+                    await on_progress(status)
+                log.info("Tool call [async-parallel]: %s(%s)", tc.name, str(tc.arguments)[:100])
 
-            log.info("Tool call [async]: %s(%s)", tc.name, str(tc.arguments)[:100])
+            # Run all subagents concurrently in thread pool
+            loop = asyncio.get_event_loop()
+            tasks = [
+                loop.run_in_executor(
+                    None,
+                    lambda n=tc.name, a=tc.arguments: execute_tool(
+                        n, a, timeout=_SUBAGENT_TIMEOUT, cwd=cwd,
+                    ),
+                )
+                for tc in tool_calls
+            ]
+            results = await asyncio.gather(*tasks)
+            for tc, (result_str, new_files) in zip(tool_calls, results):
+                written_files.extend(new_files)
+                messages.append(format_tool_result(tc.name, tc.id, result_str))
+        else:
+            # Sequential execution (standard behavior)
+            for tc in tool_calls:
+                # Show tool status
+                status = _format_tool_status(tc.name, tc.arguments)
+                if streaming_editor:
+                    await streaming_editor.add_tool_status(status)
+                elif on_progress:
+                    await on_progress(status)
 
-            # Execute in thread pool to avoid blocking
-            result_str, new_files = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda n=tc.name, a=tc.arguments: execute_tool(
-                    n, a, timeout=tool_timeout, cwd=cwd,
-                ),
-            )
-            written_files.extend(new_files)
-            messages.append(format_tool_result(tc.name, tc.id, result_str))
+                log.info("Tool call [async]: %s(%s)", tc.name, str(tc.arguments)[:100])
+
+                # Execute in thread pool to avoid blocking
+                result_str, new_files = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda n=tc.name, a=tc.arguments: execute_tool(
+                        n, a, timeout=tool_timeout, cwd=cwd,
+                    ),
+                )
+                written_files.extend(new_files)
+                messages.append(format_tool_result(tc.name, tc.id, result_str))
 
     return {
         "result": last_text or "(max tool iterations reached)",

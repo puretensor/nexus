@@ -84,6 +84,12 @@ def init_db():
         con.execute("ALTER TABLE sessions_v2 RENAME TO sessions")
         log.info("Migration complete")
 
+    # Add backend column for hybrid routing session affinity
+    session_cols = [row[1] for row in con.execute("PRAGMA table_info(sessions)").fetchall()]
+    if "backend" not in session_cols:
+        con.execute("ALTER TABLE sessions ADD COLUMN backend TEXT DEFAULT 'api'")
+        log.info("Added 'backend' column to sessions table")
+
     # Scheduled tasks table
     task_cols = [row[1] for row in con.execute("PRAGMA table_info(scheduled_tasks)").fetchall()]
     if not task_cols:
@@ -199,6 +205,21 @@ def init_db():
             )"""
         )
         log.info("Created conversation_history table")
+
+    # Task management table
+    task_cols = [row[1] for row in con.execute("PRAGMA table_info(tasks)").fetchall()]
+    if not task_cols:
+        con.execute("""CREATE TABLE tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            priority TEXT NOT NULL DEFAULT 'medium',
+            notes TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )""")
+        log.info("Created tasks table")
 
     con.commit()
     con.close()
@@ -1104,6 +1125,8 @@ def get_conversation_history(session_id: str) -> list[dict]:
 def save_conversation_history(session_id: str, messages: list[dict]) -> None:
     """Persist conversation messages for a session, trimming to max length."""
     import json
+    from context_compression import compress_tool_results
+    messages = compress_tool_results(messages)
     messages = _trim_history(messages, _MAX_HISTORY_MESSAGES)
     now = _now()
     con = _connect()
@@ -1130,3 +1153,75 @@ def delete_conversation_history(session_id: str) -> None:
     )
     con.commit()
     con.close()
+
+
+# ---------------------------------------------------------------------------
+# Task management (persistent work items)
+# ---------------------------------------------------------------------------
+
+def db_create_task(title: str, description: str = "", priority: str = "medium") -> int:
+    """Create a new task. Returns task ID."""
+    now = _now()
+    con = _connect()
+    con.execute(
+        "INSERT INTO tasks (title, description, status, priority, created_at, updated_at) VALUES (?, ?, 'pending', ?, ?, ?)",
+        (title, description, priority, now, now),
+    )
+    task_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+    con.commit()
+    con.close()
+    return task_id
+
+
+def db_update_task(task_id: int, status: str | None = None, notes: str | None = None) -> tuple[bool, str]:
+    """Update a task's status and/or append notes. Returns (success, message)."""
+    now = _now()
+    con = _connect()
+    row = con.execute("SELECT id, title, status, notes FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not row:
+        con.close()
+        return False, f"Task #{task_id} not found"
+
+    updates, params = [], []
+    if status is not None:
+        if status not in ("pending", "in_progress", "done", "cancelled"):
+            con.close()
+            return False, f"Invalid status: {status}"
+        updates.append("status = ?")
+        params.append(status)
+    if notes is not None:
+        current_notes = row[3] or ""
+        new_notes = f"{current_notes}\n[{now[:19]}] {notes}".strip()
+        updates.append("notes = ?")
+        params.append(new_notes)
+
+    if not updates:
+        con.close()
+        return False, "Nothing to update"
+
+    updates.append("updated_at = ?")
+    params.append(now)
+    params.append(task_id)
+    con.execute(f"UPDATE tasks SET {', '.join(updates)} WHERE id = ?", params)
+    con.commit()
+    con.close()
+
+    parts = []
+    if status:
+        parts.append(f"status → {status}")
+    if notes:
+        parts.append("notes appended")
+    return True, f"Task #{task_id} ({row[1]}): {', '.join(parts)}"
+
+
+def db_list_tasks(status_filter: str = "active") -> list[dict]:
+    """List tasks, optionally filtered by status."""
+    con = _connect()
+    if status_filter == "all":
+        rows = con.execute("SELECT id, title, status, priority, notes, updated_at FROM tasks ORDER BY id").fetchall()
+    elif status_filter == "active":
+        rows = con.execute("SELECT id, title, status, priority, notes, updated_at FROM tasks WHERE status IN ('pending', 'in_progress') ORDER BY id").fetchall()
+    else:
+        rows = con.execute("SELECT id, title, status, priority, notes, updated_at FROM tasks WHERE status = ? ORDER BY id", (status_filter,)).fetchall()
+    con.close()
+    return [{"id": r[0], "title": r[1], "status": r[2], "priority": r[3], "notes": r[4], "updated_at": r[5]} for r in rows]

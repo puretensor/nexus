@@ -98,6 +98,23 @@ SNIPPET_SMTP_PASS = os.environ.get("SNIPPET_SMTP_PASS", "")
 SNIPPET_FROM = os.environ.get("SNIPPET_FROM", "")
 SNIPPET_TO = os.environ.get("SNIPPET_TO", "")
 
+# Hybrid backend
+HYBRID_DEFAULT = os.environ.get("HYBRID_DEFAULT", "api")
+HYBRID_CLI_TIMEOUT = int(os.environ.get("HYBRID_CLI_TIMEOUT", "1800"))
+HYBRID_API_TIMEOUT = int(os.environ.get("HYBRID_API_TIMEOUT", "300"))
+HYBRID_CLI_REMOTE = os.environ.get("HYBRID_CLI_REMOTE", "false").lower() in ("true", "1", "yes")
+HYBRID_TC_HOST = os.environ.get("HYBRID_TC_HOST", "tensor-core")
+
+# Subagent parallelism
+SUBAGENT_MODEL = os.environ.get("SUBAGENT_MODEL", "sonnet")
+SUBAGENT_MAX_ITER = int(os.environ.get("SUBAGENT_MAX_ITER", "15"))
+SUBAGENT_TIMEOUT = int(os.environ.get("SUBAGENT_TIMEOUT", "180"))
+
+# Context compression
+COMPRESS_TRIGGER_TOKENS = int(os.environ.get("COMPRESS_TRIGGER_TOKENS", "100000"))
+PRESERVE_RECENT_MESSAGES = int(os.environ.get("PRESERVE_RECENT_MESSAGES", "40"))
+SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "us.anthropic.claude-haiku-4-5-20251001")
+
 # Paths
 DB_PATH = Path(os.environ.get("DB_PATH", str(Path(__file__).parent / "nexus.db")))
 SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "nexus_system_prompt.md"
