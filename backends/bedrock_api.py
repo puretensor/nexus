@@ -182,6 +182,7 @@ class BedrockAPIBackend:
             BEDROCK_REGION,
             BEDROCK_MODEL,
             BEDROCK_MAX_TOKENS,
+            BEDROCK_THINKING_BUDGET,
             ANTHROPIC_TOOLS_ENABLED,
             ANTHROPIC_TOOL_MAX_ITER,
             ANTHROPIC_TOOL_TIMEOUT,
@@ -192,6 +193,7 @@ class BedrockAPIBackend:
         self._region = BEDROCK_REGION
         self._default_model = BEDROCK_MODEL
         self._max_tokens = BEDROCK_MAX_TOKENS
+        self._thinking_budget = BEDROCK_THINKING_BUDGET
         self._tools_enabled = ANTHROPIC_TOOLS_ENABLED
         self._max_iterations = ANTHROPIC_TOOL_MAX_ITER
         self._tool_timeout = ANTHROPIC_TOOL_TIMEOUT
@@ -357,6 +359,8 @@ class BedrockAPIBackend:
 
         try:
             for event in event_stream:
+                log.debug("Bedrock stream event keys: %s", list(event.keys()))
+
                 # --- messageStart ---
                 if "messageStart" in event:
                     pass  # role info, nothing to accumulate
@@ -385,30 +389,39 @@ class BedrockAPIBackend:
                 elif "contentBlockDelta" in event:
                     delta = event["contentBlockDelta"].get("delta", {})
 
-                    if "text" in delta and current_block_type == "text":
+                    if "text" in delta:
+                        if current_block_type is None:
+                            current_block_type = "text"
+                            current_text_buf.clear()
                         chunk = delta["text"]
-                        current_text_buf.append(chunk)
-                        if streaming_editor and loop:
-                            future = asyncio.run_coroutine_threadsafe(
-                                streaming_editor.add_text(chunk), loop
-                            )
-                            # Don't block long — editor is best-effort
-                            try:
-                                future.result(timeout=2)
-                            except Exception:
-                                pass
+                        if current_block_type == "text":
+                            current_text_buf.append(chunk)
+                            if streaming_editor and loop:
+                                future = asyncio.run_coroutine_threadsafe(
+                                    streaming_editor.add_text(chunk), loop
+                                )
+                                # Don't block long — editor is best-effort
+                                try:
+                                    future.result(timeout=2)
+                                except Exception:
+                                    pass
 
                     elif "toolUse" in delta and current_block_type == "toolUse":
                         input_fragment = delta["toolUse"].get("input", "")
                         if input_fragment:
                             current_tool_input_chunks.append(input_fragment)
 
-                    elif "reasoningContent" in delta and current_block_type == "thinking":
+                    elif "reasoningContent" in delta:
+                        if current_block_type is None:
+                            current_block_type = "thinking"
+                            current_thinking_buf.clear()
+                            current_thinking_signature = ""
                         rc = delta["reasoningContent"]
-                        if "text" in rc:
-                            current_thinking_buf.append(rc["text"])
-                        if "signature" in rc:
-                            current_thinking_signature = rc["signature"]
+                        if current_block_type == "thinking":
+                            if "text" in rc:
+                                current_thinking_buf.append(rc["text"])
+                            if "signature" in rc:
+                                current_thinking_signature = rc["signature"]
 
                 # --- contentBlockStop ---
                 elif "contentBlockStop" in event:
@@ -417,6 +430,8 @@ class BedrockAPIBackend:
                 # --- messageStop ---
                 elif "messageStop" in event:
                     stop_reason = event["messageStop"].get("stopReason", "")
+                    if current_block_type is not None:
+                        _flush_block()
 
                 # --- metadata (usage) ---
                 elif "metadata" in event:
@@ -446,10 +461,31 @@ class BedrockAPIBackend:
             log.error("Error consuming Bedrock stream: %s", e)
             raise
 
+        # If the stream ended without an explicit block stop, flush any buffer.
+        if current_block_type is not None:
+            _flush_block()
+
         # Log usage if we got it
         if usage:
             model_id = self._default_model
             _log_bedrock_usage(usage, model_id, "bedrock-stream")
+
+        log.info(
+            "[bedrock-stream] Result: text_parts=%d (%d chars), tool_calls=%d, blocks=%d, stop=%s",
+            len(text_parts),
+            sum(len(t) for t in text_parts),
+            len(tool_calls),
+            len(anthropic_blocks),
+            stop_reason,
+        )
+        for i, block in enumerate(anthropic_blocks):
+            btype = block.get("type", "?")
+            if btype == "thinking":
+                log.info("[bedrock-stream] block[%d] thinking (%d chars)", i, len(block.get("thinking", "")))
+            elif btype == "text":
+                log.info("[bedrock-stream] block[%d] text (%d chars): %s", i, len(block.get("text", "")), block.get("text", "")[:200])
+            elif btype == "tool_use":
+                log.info("[bedrock-stream] block[%d] tool_use: %s", i, block.get("name", "?"))
 
         assistant_msg = {"role": "assistant", "content": anthropic_blocks}
         return ("\n".join(text_parts).strip(), tool_calls, assistant_msg)
@@ -515,11 +551,14 @@ class BedrockAPIBackend:
                 "tools": self._tools + [{"cachePoint": {"type": "default"}}],
             }
 
-        # Enable adaptive extended thinking — lets Claude reason before
-        # responding. Cannot coexist with temperature/topP/topK.
-        kwargs["additionalModelRequestFields"] = {
-            "thinking": {"type": "adaptive"},
-        }
+        # Optional extended thinking with explicit budget — lets Claude reason
+        # before responding. Cannot coexist with temperature/topP/topK.
+        # Only enable when a positive budget is configured to avoid empty
+        # responses when the model returns thinking without visible text.
+        if self._thinking_budget and self._thinking_budget > 0:
+            kwargs["additionalModelRequestFields"] = {
+                "thinking": {"type": "enabled", "budget_tokens": self._thinking_budget},
+            }
 
         return kwargs
 

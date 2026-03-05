@@ -37,6 +37,7 @@ ANTHROPIC_TOTAL_TIMEOUT = int(os.environ.get("ANTHROPIC_TOTAL_TIMEOUT", "600"))
 BEDROCK_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
 BEDROCK_MODEL = os.environ.get("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
 BEDROCK_MAX_TOKENS = int(os.environ.get("BEDROCK_MAX_TOKENS", "64000"))
+BEDROCK_THINKING_BUDGET = int(os.environ.get("BEDROCK_THINKING_BUDGET", "0"))
 
 # vLLM — local OpenAI-compatible endpoint
 VLLM_URL = os.environ.get("VLLM_URL", "http://localhost:8200/v1")
