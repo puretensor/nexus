@@ -36,3 +36,6 @@ Thumbs.db
 # Temp
 /tmp/
 *.tmp
+
+# Claude CLI binary
+claude-bin/
