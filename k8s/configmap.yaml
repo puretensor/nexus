@@ -5,7 +5,7 @@ metadata:
   namespace: nexus
 data:
   # Engine
-  ENGINE_BACKEND: "claude_code"
+  ENGINE_BACKEND: "bedrock_api"
   CLAUDE_MODEL: "sonnet"
   ANTHROPIC_MODEL: "claude-sonnet-4-6"
   ANTHROPIC_MAX_TOKENS: "8192"
