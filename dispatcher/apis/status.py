@@ -7,15 +7,29 @@ PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://YOUR_PROMETHEUS_IP:909
 
 # Display-friendly names for Prometheus instance labels
 # Format: "LAN_IP:9100": "node-name"
-# Populate with your node IPs — set PROMETHEUS_URL env var for your deployment
 NODE_NAMES = {
-    # "192.168.x.x:9100": "tensor-core",
-    # "192.168.x.x:9100": "node1",
-    # Add your nodes here
+    "192.168.4.217:9100": "tensor-core",
+    "192.168.4.184:9100": "fox-n0",
+    "192.168.4.50:9100": "fox-n1",
+    "192.168.4.158:9100": "arx1",
+    "192.168.4.164:9100": "arx2",
+    "192.168.4.165:9100": "arx3",
+    "192.168.4.162:9100": "arx4",
+    "192.168.4.219:9100": "hal-0",
+    "192.168.4.222:9100": "hal-1",
+    "192.168.4.220:9100": "hal-2",
+    "192.168.4.186:9100": "mon1",
+    "192.168.4.180:9100": "mon2",
+    "192.168.4.223:9100": "mon3",
 }
 
-# Preferred display order — list node names in the order you want them shown
-NODE_ORDER: list[str] = []
+# Preferred display order
+NODE_ORDER: list[str] = [
+    "tensor-core", "fox-n0", "fox-n1",
+    "arx1", "arx2", "arx3", "arx4",
+    "hal-0", "hal-1", "hal-2",
+    "mon1", "mon2", "mon3",
+]
 
 
 @ttl_cache(seconds=15)

@@ -7,7 +7,9 @@ import time
 from dispatcher.apis import get_session, ttl_cache, DispatchError
 
 YAHOO_BASE = "https://query1.finance.yahoo.com/v8/finance/chart"
-YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0"}
+YAHOO_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36",
+}
 
 # Index definitions: (yahoo_symbol, display_name, region)
 US_INDICES = [

@@ -23,20 +23,20 @@ data:
   OBSERVER_STATE_DIR: "/data/state/observers"
   DARWIN_SNAPSHOT_PATH: "/data/state/darwin_state.json"
 
-  # TC services (via Tailscale — set IPs in nexus-env secret or override here)
-  TC_SSH_HOST: ""
-  WHISPER_URL: ""
-  TTS_URL: ""
-  OLLAMA_URL: ""
+  # TC services (via Tailscale from fox-n1)
+  TC_SSH_HOST: "100.121.42.54"
+  WHISPER_URL: "http://100.121.42.54:9000/transcribe"
+  TTS_URL: "http://100.121.42.54:5580"
+  OLLAMA_URL: "http://100.121.42.54:11434"
   OLLAMA_MODEL: "qwen3:30b-a3b"
 
-  # Monitoring (set in nexus-env secret)
-  PROMETHEUS_URL: ""
-  ALERTMANAGER_URL: ""
+  # Monitoring (mon2 Tailscale)
+  PROMETHEUS_URL: "http://100.80.213.1:9090"
+  ALERTMANAGER_URL: "http://100.80.213.1:9093"
 
-  # Infrastructure (set in nexus-env secret)
-  GITEA_URL: ""
-  SEARXNG_URL: ""
+  # Infrastructure
+  GITEA_URL: "http://100.92.245.5:3002"
+  SEARXNG_URL: "http://100.105.43.27:8080/search"
 
   # Agent identity
   AGENT_NAME: "HAL"

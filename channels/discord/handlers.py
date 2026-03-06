@@ -135,13 +135,13 @@ async def handle_command(message: discord.Message):
         await channel.send(
             "**Session**\n"
             "`!new` — Start fresh session\n"
-            "`!opus` — Switch to Claude Opus\n"
-            "`!sonnet` — Switch to Claude Sonnet\n"
-            "`!ollama` — Switch to local model\n"
-            "`!backend` — Show current backend\n"
-            "`!status` — Show current session info\n"
+            "`!opus` — Switch to Claude Opus 4.6\n"
+            "`!sonnet` — Switch to Claude Sonnet 4.6\n"
+            "`!backend` — Show/switch backend\n"
+            "`!voice` — Toggle voice mode\n"
+            "`!status` — Current session info\n"
             "`!help` — This message\n\n"
-            "Any other text is sent to the AI engine."
+            "Any other text goes to the AI engine."
         )
         return True
 

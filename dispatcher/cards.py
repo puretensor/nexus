@@ -38,9 +38,9 @@ ACCENT_STATUS = "#26c6da"
 ACCENT_MARKETS = "#ef5350"
 ACCENT_FOREX = "#5c6bc0"
 
-# Fonts
-_FONT_PATH = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
-_FONT_BOLD_PATH = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
+# Fonts — DejaVu Sans (installed in container via fonts-dejavu-core)
+_FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+_FONT_BOLD_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 
 def _font(size: int) -> ImageFont.FreeTypeFont:
@@ -378,7 +378,7 @@ def render_gold(data: dict) -> tuple[io.BytesIO, str]:
     card.draw_data_row("24h Change", f"{silver_chg:+.1f}%", silver_color)
 
     caption = (
-        f"\U0001fA99 <b>Precious Metals</b>\n"
+        f"\U0001fa99 <b>Precious Metals</b>\n"
         f"Gold ${data.get('gold_usd', 0):,.0f}/oz \u00b7 Silver ${data.get('silver_usd', 0):,.2f}/oz"
     )
     return card.finalize(), caption

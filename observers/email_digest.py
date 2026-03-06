@@ -206,29 +206,46 @@ class EmailDigestObserver(Observer):
 
         log.info("Found %d new unread emails. Asking Claude to summarize...", len(all_new))
 
-        # Ask Claude to make sense of it
+        # Ask Claude to triage — only surface important emails
         now_str = self.now_utc().strftime("%A %d %B %Y, %H:%M UTC")
         prompt = (
             f"Today is {now_str}. This is the actual current date — trust it completely. "
             f"Do NOT treat events or documents dated 2025 or 2026 as speculative or forward-looking "
             f"simply because they are near your training cutoff. They are real and current.\n\n"
-            f"You are an email assistant. Here are {len(all_new)} new unread emails "
+            f"You are an email triage assistant. Here are {len(all_new)} new unread emails "
             f"across multiple accounts:\n\n"
             f"{raw_summary}\n\n"
-            "Give me a brief morning-style digest:\n"
-            "1. Flag anything that looks urgent or needs a reply\n"
-            "2. Group newsletters/marketing separately\n"
-            "3. Note anything unusual\n"
-            "Keep it concise — this goes to a Telegram message. "
-            "Use plain text, no markdown."
+            "RULES:\n"
+            "- ONLY report emails that genuinely need human attention: "
+            "personal messages, business correspondence, invoices, security alerts, "
+            "account issues, or anything requiring a reply or action.\n"
+            "- SILENTLY IGNORE: newsletters, marketing, promotional offers, "
+            "automated notifications (GitHub, CI/CD, shipping updates, social media), "
+            "mailing lists, and anything that is purely informational with no action needed.\n"
+            "- If NOTHING needs attention, respond with exactly: NONE\n"
+            "- For each important email, write ONE line: the account, sender name, and "
+            "a 5-10 word summary of what it's about and why it matters.\n"
+            "- Do NOT reproduce subject lines or email content verbatim.\n"
+            "- Do NOT group or categorise. Just list the important ones, most urgent first.\n"
+            "- Maximum 5 items. This goes to Telegram — brevity is critical.\n"
+            "- Plain text only, no markdown, no bullet points, no headers."
         )
 
         digest = self.call_claude(prompt)
 
-        # Send to Telegram
+        # If Claude says nothing needs attention, don't spam Telegram
+        if digest.strip().upper() == "NONE":
+            log.info("Email triage: %d new emails, none important enough to notify", len(all_new))
+            return ObserverResult(
+                success=True,
+                data={"new_count": len(all_new), "notified": False,
+                      "accounts": len(accounts), "errors": errors},
+            )
+
+        # Send to Telegram — brief header only
         now = self.now_utc().strftime("%H:%M UTC")
-        header = f"[{now}] EMAIL DIGEST -- {len(all_new)} new"
-        self.send_telegram(f"{header}\n\n{digest}")
+        header = f"[{now}] EMAIL"
+        self.send_telegram(f"{header}\n{digest}")
 
         return ObserverResult(
             success=True,

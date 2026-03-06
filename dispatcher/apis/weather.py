@@ -17,10 +17,14 @@ async def fetch_weather(location: str | None = None) -> dict:
 
     session = await get_session()
     try:
-        async with session.get(url) as resp:
+        async with session.get(url, headers={"Accept": "application/json"}) as resp:
             if resp.status != 200:
                 raise DispatchError(f"Weather API returned {resp.status} for '{loc}'")
-            data = await resp.json(content_type=None)
+            text = await resp.text()
+            if not text.strip().startswith("{"):
+                raise DispatchError(f"Weather API returned non-JSON for '{loc}'")
+            import json
+            data = json.loads(text)
     except DispatchError:
         raise
     except Exception as e:

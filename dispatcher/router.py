@@ -165,7 +165,10 @@ async def handle_trains(from_crs: str, to_crs: str, chat, bot) -> None:
         from dispatcher.apis.darwin import fetch_darwin_departures
         data = await fetch_darwin_departures(from_crs, to_crs)
     except (ImportError, DispatchError):
-        data = await fetch_trains(from_crs, to_crs)
+        try:
+            data = await fetch_trains(from_crs, to_crs)
+        except DispatchError:
+            raise
     png_buf, caption = render_trains(data)
 
     keyboard = InlineKeyboardMarkup([[
