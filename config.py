@@ -66,7 +66,7 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "sonnet")
 # Codex CLI (OpenAI)
 CODEX_BIN = os.environ.get("CODEX_BIN") or shutil.which("codex") or "/usr/bin/codex"
 CODEX_MODEL = os.environ.get("CODEX_MODEL", "")
-CODEX_CWD = os.environ.get("CODEX_CWD", "/home/puretensorai")
+CODEX_CWD = os.environ.get("CODEX_CWD", "/app")
 
 # Gemini CLI (Google)
 GEMINI_BIN = os.environ.get("GEMINI_BIN") or shutil.which("gemini") or "/usr/bin/gemini"

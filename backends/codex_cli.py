@@ -25,28 +25,33 @@ class CodexCLIBackend:
         return "Codex"
 
     @staticmethod
-    def _build_prompt(
-        user_message: str,
+    def _write_instructions(
         system_prompt: str | None = None,
         memory_context: str | None = None,
         extra_system_prompt: str | None = None,
-    ) -> str:
-        """Prepend system context to the user message.
+    ) -> None:
+        """Write instructions to ~/.codex/instructions.md before each Codex call.
 
-        Codex CLI has no --system-prompt flag, so we inject context
-        as a <system> block before the user message.
+        Codex CLI reads INSTRUCTIONS.md from CWD (like AGENTS.md) as additional
+        context. We write the full system prompt + memory there so the model
+        receives it alongside the user message.
         """
-        context_parts = []
+        import os
+        parts = []
         if system_prompt:
-            context_parts.append(system_prompt)
+            parts.append(system_prompt)
         if memory_context:
-            context_parts.append(memory_context)
+            parts.append(memory_context)
         if extra_system_prompt:
-            context_parts.append(extra_system_prompt)
-        if not context_parts:
-            return user_message
-        context = "\n\n".join(context_parts)
-        return f"<system>\n{context}\n</system>\n\n{user_message}"
+            parts.append(extra_system_prompt)
+
+        # Write as AGENTS.md in the CWD — Codex auto-reads this file
+        from config import CODEX_CWD
+        cwd = CODEX_CWD or "/app"
+        agents_path = os.path.join(cwd, "AGENTS.md")
+        content = "\n\n".join(parts) if parts else ""
+        with open(agents_path, "w") as f:
+            f.write(content)
 
     @property
     def name(self) -> str:
@@ -78,9 +83,9 @@ class CodexCLIBackend:
 
         Returns {"result": str, "session_id": str | None}
         """
-        full_prompt = self._build_prompt(prompt, system_prompt, memory_context)
+        self._write_instructions(system_prompt, memory_context)
         cmd = [
-            self._bin, "exec", full_prompt,
+            self._bin, "exec", prompt,
             "--json",
             "--dangerously-bypass-approvals-and-sandbox",
             "--skip-git-repo-check",
@@ -129,9 +134,9 @@ class CodexCLIBackend:
 
         Returns {"result": str, "session_id": str | None, "written_files": list}
         """
-        full_prompt = self._build_prompt(message, system_prompt, memory_context, extra_system_prompt)
+        self._write_instructions(system_prompt, memory_context, extra_system_prompt)
         cmd = [
-            self._bin, "exec", full_prompt,
+            self._bin, "exec", message,
             "--json",
             "--dangerously-bypass-approvals-and-sandbox",
             "--skip-git-repo-check",
@@ -166,6 +171,23 @@ class CodexCLIBackend:
             proc.kill()
             await proc.communicate()
             raise TimeoutError("Codex CLI timed out after 1800s")
+        except RuntimeError as e:
+            # _read_codex_stream raises RuntimeError on empty output — check stderr for details
+            await proc.wait()
+            stderr_bytes = await proc.stderr.read() if proc.stderr else b""
+            err = stderr_bytes.decode().strip()
+            log.warning("Codex CLI stream empty, stderr: %s", err[:500])
+            if "401" in err or "Unauthorized" in err:
+                return {
+                    "result": "Codex CLI auth failed (401). Run `codex login` to re-authenticate.",
+                    "session_id": None,
+                    "written_files": [],
+                }
+            return {
+                "result": f"Codex CLI error: {err[:500] or str(e)}",
+                "session_id": None,
+                "written_files": [],
+            }
 
         await proc.wait()
 

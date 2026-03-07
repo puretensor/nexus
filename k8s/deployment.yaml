@@ -113,6 +113,26 @@ spec:
               mountPath: /skills-seed
               readOnly: true
 
+        # Login Codex CLI with OpenAI API key from nexus-env secret
+        # Codex Rust binary ignores OPENAI_API_KEY env var — needs explicit login
+        - name: setup-codex
+          image: nexus:v2.0.0
+          imagePullPolicy: Never
+          command:
+            - sh
+            - -c
+            - |
+              echo "$OPENAI_API_KEY" | codex login --with-api-key 2>/dev/null || true
+          env:
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-env
+                  key: OPENAI_API_KEY
+          volumeMounts:
+            - name: codex-home
+              mountPath: /app/.codex
+
         # Fix PVC ownership (runs as root)
         - name: fix-db-perms
           image: busybox:1.36
@@ -185,6 +205,9 @@ spec:
             # Google OAuth tokens (writable for refresh)
             - name: oauth-tokens-writable
               mountPath: /app/.config/puretensor/gdrive_tokens
+            # Codex CLI home (auth + state)
+            - name: codex-home
+              mountPath: /app/.codex
             # Synced reports and voice memos from tensor-core
             - name: report-sync
               mountPath: /sync
@@ -221,6 +244,8 @@ spec:
         - name: oauth-tokens-writable
           emptyDir: {}
         - name: skills-seed
+          emptyDir: {}
+        - name: codex-home
           emptyDir: {}
         - name: report-sync
           hostPath:
