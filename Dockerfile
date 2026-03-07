@@ -5,8 +5,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pandoc poppler-utils qpdf nodejs npm procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js document generation packages (DOCX, PPTX skills)
-RUN npm install -g docx pptxgenjs
+# Node.js packages: doc generation + CLI agents (Codex, Gemini)
+RUN npm install -g docx pptxgenjs @openai/codex @google/gemini-cli
 
 WORKDIR /app
 
