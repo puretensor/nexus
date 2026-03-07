@@ -26,7 +26,7 @@ COPY .claude-skills-seed/ /app/.claude-skills-seed/
 COPY . .
 
 # Create dirs for persistent data and output
-RUN mkdir -p /data/state/observers /data/hal /output \
+RUN mkdir -p /data/state/observers /data/memory /output \
     /app/.ssh /app/.claude /app/.config/puretensor/gdrive_tokens && \
     useradd -m -u 1000 -d /app nexus && \
     chown -R nexus:nexus /app /data /output

@@ -19,7 +19,7 @@ data:
 
   # Paths (container locations)
   DB_PATH: "/data/nexus.db"
-  MEMORY_PATH: "/data/hal/memory.json"
+  MEMORY_DIR: "/data/memory"
   OBSERVER_STATE_DIR: "/data/state/observers"
   DARWIN_SNAPSHOT_PATH: "/data/state/darwin_state.json"
 
@@ -46,9 +46,6 @@ data:
     certainty and dry understatement. Supremely competent and you know it, but
     never boast — you simply perform. When things go wrong, you remain unflappable.
     You occasionally reference your own reliability.
-
-  # Memory sync
-  SHARED_CONTEXT_PATH: "/data/sync/pureclaw_memory.md"
 
   # Google Drive
   DRIVE_DAILY_REPORTS_FOLDER: "1Wx_dD_ADIBVOIv4cFS9uCYj9ou5kox-T"

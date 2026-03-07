@@ -43,6 +43,8 @@ with patch.dict("os.environ", {
         _sanitize_topic,
         MEMORY_MD,
         MEMORY_DIR,
+        CONTEXT_MD,
+        LESSONS_MD,
         MAX_MEMORY_LINES,
     )
     from config import AGENT_NAME
@@ -56,8 +58,12 @@ with patch.dict("os.environ", {
 def use_tmp_memory(tmp_path, monkeypatch):
     mem_dir = tmp_path / "memory"
     mem_md = mem_dir / "MEMORY.md"
+    ctx_md = mem_dir / "CONTEXT.md"
+    les_md = mem_dir / "LESSONS.md"
     monkeypatch.setattr("memory.MEMORY_DIR", mem_dir)
     monkeypatch.setattr("memory.MEMORY_MD", mem_md)
+    monkeypatch.setattr("memory.CONTEXT_MD", ctx_md)
+    monkeypatch.setattr("memory.LESSONS_MD", les_md)
     yield mem_dir
 
 
@@ -262,12 +268,19 @@ class TestListTopicFiles:
         assert "infrastructure" in names
         assert "lessons" in names
 
-    def test_excludes_memory_md(self, use_tmp_memory):
+    def test_excludes_system_files(self, use_tmp_memory):
         save_memory("main entry")  # creates MEMORY.md
         save_memory("topic entry", topic="test")
+        # Create system files
+        use_tmp_memory.mkdir(parents=True, exist_ok=True)
+        (use_tmp_memory / "CONTEXT.md").write_text("# Context\n")
+        (use_tmp_memory / "LESSONS.md").write_text("# Lessons\n")
         topics = list_topic_files()
         names = [t["name"] for t in topics]
         assert "MEMORY" not in names
+        assert "CONTEXT" not in names
+        assert "LESSONS" not in names
+        assert "test" in names
 
     def test_has_size(self, use_tmp_memory):
         save_memory("some content", topic="sized")
@@ -339,7 +352,7 @@ class TestGetMemoriesForInjection:
         save_memory("first fact")
         save_memory("second fact")
         output = get_memories_for_injection()
-        assert output.startswith(f"[{AGENT_NAME} Memory]")
+        assert f"[{AGENT_NAME} Memory]" in output
         assert "- first fact" in output
         assert "- second fact" in output
 
@@ -350,6 +363,35 @@ class TestGetMemoriesForInjection:
         save_memory("test")
         output = get_memories_for_injection()
         assert "# HAL Memory" in output
+
+    def test_includes_context(self, use_tmp_memory):
+        use_tmp_memory.mkdir(parents=True, exist_ok=True)
+        (use_tmp_memory / "CONTEXT.md").write_text("# Context\n\nFleet topology here\n")
+        output = get_memories_for_injection()
+        assert f"[{AGENT_NAME} Context]" in output
+        assert "Fleet topology here" in output
+
+    def test_includes_lessons(self, use_tmp_memory):
+        use_tmp_memory.mkdir(parents=True, exist_ok=True)
+        (use_tmp_memory / "LESSONS.md").write_text("# Lessons\n\n- Never do X\n")
+        output = get_memories_for_injection()
+        assert f"[{AGENT_NAME} Lessons]" in output
+        assert "Never do X" in output
+
+    def test_all_three_sections(self, use_tmp_memory):
+        use_tmp_memory.mkdir(parents=True, exist_ok=True)
+        (use_tmp_memory / "CONTEXT.md").write_text("# Context\n\nFleet info\n")
+        (use_tmp_memory / "LESSONS.md").write_text("# Lessons\n\n- Lesson 1\n")
+        save_memory("runtime fact")
+        output = get_memories_for_injection()
+        assert f"[{AGENT_NAME} Context]" in output
+        assert f"[{AGENT_NAME} Lessons]" in output
+        assert f"[{AGENT_NAME} Memory]" in output
+        # Verify ordering: Context before Lessons before Memory
+        ctx_pos = output.index(f"[{AGENT_NAME} Context]")
+        les_pos = output.index(f"[{AGENT_NAME} Lessons]")
+        mem_pos = output.index(f"[{AGENT_NAME} Memory]")
+        assert ctx_pos < les_pos < mem_pos
 
 
 # ---------------------------------------------------------------------------

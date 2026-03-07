@@ -131,24 +131,6 @@ fi
 ssh "$FOX_N1" "kubectl -n nexus create configmap claude-context \
   --from-file=CLAUDE.md=/tmp/nexus-claude-md && rm /tmp/nexus-claude-md"
 
-# Claude memory ConfigMap (project memory for Claude CLI)
-ssh "$FOX_N1" "kubectl -n nexus delete configmap claude-memory 2>/dev/null || true"
-MEMORY_ARGS=""
-if [ -d "$NEXUS_DIR/prompts" ]; then
-  for f in "$NEXUS_DIR/prompts"/*.md; do
-    [ -f "$f" ] || continue
-    fname="$(basename "$f")"
-    scp "$f" "$FOX_N1:/tmp/nexus-mem-$fname"
-    MEMORY_ARGS="$MEMORY_ARGS --from-file=$fname=/tmp/nexus-mem-$fname"
-  done
-fi
-if [ -n "$MEMORY_ARGS" ]; then
-  ssh "$FOX_N1" "kubectl -n nexus create configmap claude-memory $MEMORY_ARGS"
-  ssh "$FOX_N1" "rm -f /tmp/nexus-mem-*.md"
-else
-  ssh "$FOX_N1" "kubectl -n nexus create configmap claude-memory"
-fi
-
 # PVCs
 scp "$NEXUS_DIR/k8s/pvcs.yaml" "$FOX_N1:/tmp/nexus-pvcs.yaml"
 ssh "$FOX_N1" "kubectl apply -f /tmp/nexus-pvcs.yaml"
@@ -193,9 +175,52 @@ echo "  Copying nexus.db..."
 scp "$NEXUS_DIR/nexus.db" "$FOX_N1:/tmp/nexus.db"
 ssh "$FOX_N1" "kubectl cp /tmp/nexus.db nexus/nexus-seed:/data/nexus.db && rm /tmp/nexus.db"
 
-# Copy memory
+# Seed canonical memory directory (/data/memory/)
+echo "  Seeding canonical memory store..."
+ssh "$FOX_N1" "kubectl exec -n nexus nexus-seed -- mkdir -p /data/memory"
+
+# Migrate legacy /data/hal/memory/ → /data/memory/ (one-time)
+ssh "$FOX_N1" "kubectl exec -n nexus nexus-seed -- sh -c '
+  if [ -d /data/hal/memory ] && [ \"\$(ls -A /data/hal/memory 2>/dev/null)\" ]; then
+    echo \"  Migrating /data/hal/memory/ → /data/memory/\"
+    for f in /data/hal/memory/*.md; do
+      [ -f \"\$f\" ] || continue
+      fname=\$(basename \"\$f\")
+      if [ ! -f \"/data/memory/\$fname\" ]; then
+        cp \"\$f\" \"/data/memory/\$fname\"
+        echo \"    Migrated: \$fname\"
+      fi
+    done
+  fi
+'"
+
+# Seed CONTEXT.md from pureclaw_context.md (only if not already present)
+if [ -f "$NEXUS_DIR/prompts/pureclaw_context.md" ]; then
+  scp "$NEXUS_DIR/prompts/pureclaw_context.md" "$FOX_N1:/tmp/context.md"
+  ssh "$FOX_N1" "kubectl exec -n nexus nexus-seed -- sh -c '
+    if [ ! -f /data/memory/CONTEXT.md ]; then
+      cp /tmp/context.md /data/memory/CONTEXT.md
+      echo \"  Seeded CONTEXT.md from pureclaw_context.md\"
+    else
+      echo \"  CONTEXT.md already exists, skipping seed\"
+    fi
+  '"
+  ssh "$FOX_N1" "rm -f /tmp/context.md"
+fi
+
+# Seed LESSONS.md (only if not already present)
+ssh "$FOX_N1" "kubectl exec -n nexus nexus-seed -- sh -c '
+  if [ ! -f /data/memory/LESSONS.md ]; then
+    echo \"# Lessons Learned\" > /data/memory/LESSONS.md
+    echo \"\" >> /data/memory/LESSONS.md
+    echo \"Accumulated corrections and patterns — append-only.\" >> /data/memory/LESSONS.md
+    echo \"  Seeded empty LESSONS.md\"
+  fi
+'"
+
+# Seed legacy memory.json for migration (if exists and not yet migrated)
 if [ -f "$HOME/.hal/memory.json" ]; then
-  echo "  Copying memory.json..."
+  echo "  Copying legacy memory.json..."
   scp "$HOME/.hal/memory.json" "$FOX_N1:/tmp/memory.json"
   ssh "$FOX_N1" "kubectl exec -n nexus nexus-seed -- mkdir -p /data/hal"
   ssh "$FOX_N1" "kubectl cp /tmp/memory.json nexus/nexus-seed:/data/hal/memory.json && rm /tmp/memory.json"

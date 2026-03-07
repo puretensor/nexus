@@ -119,24 +119,16 @@ SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "us.anthropic.claude-haiku-4-5-2
 # Paths
 DB_PATH = Path(os.environ.get("DB_PATH", str(Path(__file__).parent / "nexus.db")))
 SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "nexus_system_prompt.md"
-CONTEXT_PATH = Path(__file__).parent / "prompts" / "pureclaw_context.md"
 
 # ---------------------------------------------------------------------------
-# System prompt
+# System prompt — thin: identity + tool-calling rules + Telegram formatting
+# Operational context (fleet, credentials, lessons) lives in /data/memory/
+# and is injected via memory.get_memories_for_injection() into ALL backends.
 # ---------------------------------------------------------------------------
 
 _system_prompt: str | None = None
 if SYSTEM_PROMPT_PATH.exists():
     _system_prompt = SYSTEM_PROMPT_PATH.read_text().strip()
-
-_context_prompt: str | None = None
-if CONTEXT_PATH.exists():
-    _context_prompt = CONTEXT_PATH.read_text().strip()
-
-if _system_prompt and _context_prompt:
-    _system_prompt = _system_prompt + "\n\n---\n\n" + _context_prompt
-elif _context_prompt:
-    _system_prompt = _context_prompt
 
 # Apply agent identity template substitution
 if _system_prompt:

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Memory sync observer — bidirectional context sharing between PureClaw and HAL.
+"""Memory sync observer — bidirectional context sharing between PureClaw instances.
 
 Runs every 10 minutes via the Observer registry:
-  Pull: Reads PureClaw's MEMORY.md from tensor-core via SSH, stores locally
+  Pull: Reads PureClaw's MEMORY.md from tensor-core via SSH, stores locally at /data/sync/
   Push: Composes a digest of HAL's recent sessions/memories, writes to tensor-core
 
 SSH is one-way (pod → TC only), so this observer drives both directions.
+Note: Pulled TC memory goes to SHARED_CONTEXT_PATH (read-only reference),
+not into /data/memory/ (the canonical store). This prevents sync conflicts.
 """
 
 import hashlib

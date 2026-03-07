@@ -75,8 +75,8 @@ spec:
             - name: skills-seed
               mountPath: /skills-seed
 
-        # Set up Claude CLI home with credentials and project memory
-        # Idempotent: only seeds files that don't already exist (preserves written state)
+        # Set up Claude CLI home with credentials + symlink memory to canonical PVC store
+        # Claude Code's auto-memory reads/writes /data/memory/ via the symlink
         - name: setup-claude
           image: busybox:1.36
           command:
@@ -88,20 +88,18 @@ spec:
               # Settings always reset to default (non-persistent)
               echo '{}' > /claude-home/remote-settings.json
               echo '{}' > /claude-home/settings.json
-              # Project memory directory (Claude CLI looks here based on CWD=/app)
-              mkdir -p /claude-home/projects/-app/memory
-              # Only copy memory files that don't already exist (preserve HAL's written memories)
-              for f in /memory-src/*; do
-                fname=$(basename "$f")
-                if [ ! -f "/claude-home/projects/-app/memory/$fname" ]; then
-                  cp "$f" "/claude-home/projects/-app/memory/$fname"
-                fi
-              done
+              # Ensure canonical memory directory exists on PVC
+              mkdir -p /data/memory
+              # Symlink Claude CLI project memory → canonical PVC store
+              # Claude Code looks for memory at ~/.claude/projects/-app/memory/ (CWD=/app)
+              mkdir -p /claude-home/projects/-app
+              rm -rf /claude-home/projects/-app/memory
+              ln -sf /data/memory /claude-home/projects/-app/memory
               # Seed document skills (pdf, docx, pptx, xlsx) if not already present
               mkdir -p /claude-home/skills
               cp -rn /skills-seed/* /claude-home/skills/ 2>/dev/null || true
               # Fix ownership
-              chown -R 1000:1000 /claude-home
+              chown -R 1000:1000 /claude-home /data/memory
               chmod 700 /claude-home
           volumeMounts:
             - name: claude-credentials
@@ -109,9 +107,8 @@ spec:
               readOnly: true
             - name: claude-home
               mountPath: /claude-home
-            - name: claude-memory
-              mountPath: /memory-src
-              readOnly: true
+            - name: nexus-data
+              mountPath: /data
             - name: skills-seed
               mountPath: /skills-seed
               readOnly: true
@@ -216,10 +213,6 @@ spec:
         - name: claude-context
           configMap:
             name: claude-context
-            defaultMode: 0644
-        - name: claude-memory
-          configMap:
-            name: claude-memory
             defaultMode: 0644
         - name: oauth-tokens-secret
           secret:

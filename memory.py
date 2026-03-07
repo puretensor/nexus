@@ -1,7 +1,13 @@
-"""Persistent memory layer for PureClaw — markdown-based file store at /data/hal/memory/.
+"""Persistent memory layer for PureClaw — markdown-based file store at /data/memory/.
 
-Mirrors Claude Code's architecture: MEMORY.md (main index, ≤200 lines) plus
-topic files (freeform markdown, ≤50KB each).  Replaces the old flat JSON store.
+Engine-agnostic: all backends (claude_code, bedrock, codex, gemini, vllm, ollama)
+get identical context via get_memories_for_injection().
+
+Canonical store: /data/memory/ (PVC-backed)
+  CONTEXT.md  — fleet topology, services, credentials, preferences
+  LESSONS.md  — accumulated lessons learned (append-only)
+  MEMORY.md   — runtime memories from save_memory() tool
+  *.md        — topic-specific detail files
 
 Public API:
   save_memory(text, topic=None)      — append to MEMORY.md or topic file
@@ -11,7 +17,7 @@ Public API:
   list_topic_files()                 — list *.md topic files
   read_topic_file(name)              — read a topic file
   search_memories(query)             — search across all memory files
-  get_memories_for_injection()       — MEMORY.md content for prompt injection
+  get_memories_for_injection()       — CONTEXT + LESSONS + MEMORY for prompt injection
   get_shared_context()               — synced PureClaw MEMORY.md (read-only)
   memory_count()                     — count bullet lines in MEMORY.md
   add_memory(text, category)         — compat shim → save_memory()
@@ -29,13 +35,19 @@ from config import log, AGENT_NAME
 # Config
 # ---------------------------------------------------------------------------
 
-MEMORY_DIR = Path(os.environ.get("MEMORY_DIR", "/data/hal/memory"))
+MEMORY_DIR = Path(os.environ.get("MEMORY_DIR", "/data/memory"))
 MEMORY_MD = MEMORY_DIR / "MEMORY.md"
+CONTEXT_MD = MEMORY_DIR / "CONTEXT.md"
+LESSONS_MD = MEMORY_DIR / "LESSONS.md"
 SHARED_CONTEXT_PATH = Path(os.environ.get(
     "SHARED_CONTEXT_PATH", "/data/sync/pureclaw_memory.md"
 ))
 
+# System files — not user topic files, excluded from list_topic_files()
+_SYSTEM_FILES = {"MEMORY.md", "CONTEXT.md", "LESSONS.md"}
+
 MAX_MEMORY_LINES = 200
+MAX_CONTEXT_LINES = 500
 MAX_TOPIC_FILE_SIZE = 50 * 1024  # 50KB
 
 # Legacy path for migration
@@ -251,7 +263,7 @@ def list_topic_files() -> list[dict]:
 
     result = []
     for f in sorted(MEMORY_DIR.glob("*.md")):
-        if f.name == "MEMORY.md":
+        if f.name in _SYSTEM_FILES:
             continue
         result.append({
             "name": f.stem,
@@ -278,16 +290,17 @@ def search_memories(query: str) -> list[dict]:
     q = query.lower()
     results = []
 
-    # Search MEMORY.md
-    content = _read_md(MEMORY_MD)
-    for line in content.splitlines():
-        if q in line.lower():
-            results.append({"text": line, "source": "MEMORY.md"})
+    # Search system files (CONTEXT, LESSONS, MEMORY)
+    for sys_file in (CONTEXT_MD, LESSONS_MD, MEMORY_MD):
+        content = _read_md(sys_file)
+        for line in content.splitlines():
+            if q in line.lower():
+                results.append({"text": line, "source": sys_file.name})
 
     # Search topic files
     if MEMORY_DIR.exists():
         for f in MEMORY_DIR.glob("*.md"):
-            if f.name == "MEMORY.md":
+            if f.name in _SYSTEM_FILES:
                 continue
             topic_content = _read_md(f)
             for line in topic_content.splitlines():
@@ -298,20 +311,39 @@ def search_memories(query: str) -> list[dict]:
 
 
 def get_memories_for_injection() -> str:
-    """Return MEMORY.md content (capped at MAX_MEMORY_LINES) for prompt injection.
+    """Return all canonical memory (CONTEXT + LESSONS + MEMORY) for prompt injection.
 
-    Returns empty string if no memories.
+    This is the single injection point for all engine backends. Every backend
+    (claude_code, bedrock, codex, gemini, vllm, ollama) gets identical context.
+
+    Returns empty string if no files exist.
     """
-    content = _read_md(MEMORY_MD)
-    if not content.strip():
-        return ""
+    parts = []
 
-    lines = content.splitlines()
-    if len(lines) > MAX_MEMORY_LINES:
-        lines = lines[:MAX_MEMORY_LINES]
-        lines.append(f"\n... (truncated at {MAX_MEMORY_LINES} lines)")
+    # 1. Operational context (fleet topology, services, credentials, preferences)
+    context = _read_md(CONTEXT_MD)
+    if context.strip():
+        ctx_lines = context.splitlines()
+        if len(ctx_lines) > MAX_CONTEXT_LINES:
+            ctx_lines = ctx_lines[:MAX_CONTEXT_LINES]
+            ctx_lines.append(f"\n... (truncated at {MAX_CONTEXT_LINES} lines)")
+        parts.append(f"[{AGENT_NAME} Context]\n" + "\n".join(ctx_lines))
 
-    return f"[{AGENT_NAME} Memory]\n" + "\n".join(lines)
+    # 2. Lessons learned (accumulated corrections and patterns)
+    lessons = _read_md(LESSONS_MD)
+    if lessons.strip():
+        parts.append(f"[{AGENT_NAME} Lessons]\n" + lessons)
+
+    # 3. Runtime memories (save_memory() entries)
+    memory = _read_md(MEMORY_MD)
+    if memory.strip():
+        mem_lines = memory.splitlines()
+        if len(mem_lines) > MAX_MEMORY_LINES:
+            mem_lines = mem_lines[:MAX_MEMORY_LINES]
+            mem_lines.append(f"\n... (truncated at {MAX_MEMORY_LINES} lines)")
+        parts.append(f"[{AGENT_NAME} Memory]\n" + "\n".join(mem_lines))
+
+    return "\n\n".join(parts)
 
 
 def memory_count() -> int:
