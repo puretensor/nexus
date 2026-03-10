@@ -319,35 +319,27 @@ class DocCompilerObserver(Observer):
 
     # -- LLM calls -------------------------------------------------------------
 
-    def _call_bedrock(self, prompt: str, system: str = "") -> str:
-        """Call Bedrock Claude Sonnet for synthesis."""
-        import boto3
+    def _call_gemini(self, prompt: str, system: str = "") -> str:
+        """Call Gemini 2.5 Flash for synthesis."""
+        from google import genai
+        from google.genai import types
 
-        access_key = os.environ.get("AWS_ACCESS_KEY_ID", "")
-        secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
-        region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+        api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
+            raise ValueError("Gemini: GOOGLE_API_KEY not set")
 
-        if not access_key or not secret_key:
-            raise ValueError("Bedrock: AWS credentials not set")
-
-        client = boto3.client(
-            "bedrock-runtime",
-            region_name=region,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
+        client = genai.Client(api_key=api_key)
+        config = types.GenerateContentConfig(
+            temperature=0.3,
+            max_output_tokens=8192,
+            system_instruction=system or SYSTEM_PROMPT,
         )
-
-        response = client.converse(
-            modelId="us.anthropic.claude-sonnet-4-6",
-            system=[{"text": system or SYSTEM_PROMPT}],
-            messages=[{"role": "user", "content": [{"text": prompt}]}],
-            inferenceConfig={"temperature": 0.3, "maxTokens": 8192},
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=config,
         )
-
-        output = response.get("output", {})
-        message = output.get("message", {})
-        content_blocks = message.get("content", [])
-        return "\n".join(b["text"] for b in content_blocks if "text" in b)
+        return response.text or ""
 
     def _parse_json(self, text: str) -> dict | None:
         """Parse JSON from LLM response, handling markdown fences."""
@@ -385,7 +377,7 @@ class DocCompilerObserver(Observer):
 
         for attempt in range(1, self.MAX_RETRIES + 1):
             try:
-                result = self._call_bedrock(prompt)
+                result = self._call_gemini(prompt)
                 parsed = self._parse_json(result)
                 if parsed and "documents" in parsed:
                     return parsed["documents"]
@@ -422,7 +414,7 @@ class DocCompilerObserver(Observer):
 
         for attempt in range(1, self.MAX_RETRIES + 1):
             try:
-                result = self._call_bedrock(prompt)
+                result = self._call_gemini(prompt)
                 parsed = self._parse_json(result)
                 if parsed:
                     return parsed

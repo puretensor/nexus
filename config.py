@@ -33,11 +33,16 @@ ANTHROPIC_TOOL_MAX_ITER = int(os.environ.get("ANTHROPIC_TOOL_MAX_ITER", "25"))
 ANTHROPIC_TOOL_TIMEOUT = int(os.environ.get("ANTHROPIC_TOOL_TIMEOUT", "120"))
 ANTHROPIC_TOTAL_TIMEOUT = int(os.environ.get("ANTHROPIC_TOTAL_TIMEOUT", "600"))
 
-# AWS Bedrock
+# AWS Bedrock (legacy — kept for fallback)
 BEDROCK_REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
 BEDROCK_MODEL = os.environ.get("BEDROCK_MODEL", "us.anthropic.claude-sonnet-4-6")
 BEDROCK_MAX_TOKENS = int(os.environ.get("BEDROCK_MAX_TOKENS", "64000"))
 BEDROCK_THINKING_BUDGET = int(os.environ.get("BEDROCK_THINKING_BUDGET", "0"))
+
+# Gemini API (primary cloud LLM)
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MAX_TOKENS = int(os.environ.get("GEMINI_MAX_TOKENS", "65536"))
+GEMINI_THINKING_BUDGET = int(os.environ.get("GEMINI_THINKING_BUDGET", "0"))
 
 # vLLM — local OpenAI-compatible endpoint
 VLLM_URL = os.environ.get("VLLM_URL", "http://localhost:8200/v1")
@@ -114,7 +119,7 @@ SUBAGENT_TIMEOUT = int(os.environ.get("SUBAGENT_TIMEOUT", "180"))
 # Context compression
 COMPRESS_TRIGGER_TOKENS = int(os.environ.get("COMPRESS_TRIGGER_TOKENS", "100000"))
 PRESERVE_RECENT_MESSAGES = int(os.environ.get("PRESERVE_RECENT_MESSAGES", "40"))
-SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "us.anthropic.claude-haiku-4-5-20251001")
+SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "gemini-2.0-flash")
 
 # Paths
 DB_PATH = Path(os.environ.get("DB_PATH", str(Path(__file__).parent / "nexus.db")))

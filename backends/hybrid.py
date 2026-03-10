@@ -1,4 +1,4 @@
-"""Hybrid backend — routes between Bedrock API (fast) and Claude Code CLI (power)."""
+"""Hybrid backend — routes between Gemini API (fast) and Claude Code CLI (power)."""
 
 import logging
 import os
@@ -28,10 +28,10 @@ class HybridBackend:
     supports_sessions = True
 
     def __init__(self):
-        from backends.bedrock_api import BedrockAPIBackend
+        from backends.gemini_api import GeminiAPIBackend
         from backends.claude_code import ClaudeCodeBackend
 
-        self._api = BedrockAPIBackend()
+        self._api = GeminiAPIBackend()
         self._cli = ClaudeCodeBackend()
         self._default = os.environ.get("HYBRID_DEFAULT", "api")
         log.info("HybridBackend initialized (default=%s)", self._default)

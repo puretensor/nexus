@@ -60,8 +60,8 @@ These scripts live on tensor-core. Access them with: `ssh tensor-core 'cd ~/.con
 - HAL signs own emails from hal@example.com. Never impersonate the operator.
 
 *Email (IMAP):*
-`python3 privateemail.py <account> <command>`
-- Accounts: `hh`, `alan`, `yahoo` (see privateemail.conf for addresses)
+`python3 imap.py <account> <command>`
+- Accounts: `hh`, `alan`, `yahoo` (see imap.conf for addresses)
 - Commands: inbox, unread, search, read, trash, delete, folders
 
 *Calendar:*

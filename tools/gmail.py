@@ -653,7 +653,7 @@ def main():
             )
         else:
             print(f"Command '{args.command}' not supported for mail provider identity '{args.account}'")
-            print("Use privateemail.py or IMAP tools for inbox/search operations")
+            print("Use imap.py or IMAP tools for inbox/search operations")
             sys.exit(1)
         return
 

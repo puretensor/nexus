@@ -173,22 +173,15 @@ class GitAutoSyncObserver(Observer):
         return violations
 
     def _generate_commit_message(self, repo_path: str, diff_summary: str) -> str:
-        """Generate a commit message using Bedrock, with fallback."""
-        # Try Bedrock
+        """Generate a commit message using Gemini, with fallback."""
         try:
-            import boto3
+            from google import genai
+            from google.genai import types
 
-            access_key = os.environ.get("AWS_ACCESS_KEY_ID", "")
-            secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
-            region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+            api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
 
-            if access_key and secret_key:
-                client = boto3.client(
-                    "bedrock-runtime",
-                    region_name=region,
-                    aws_access_key_id=access_key,
-                    aws_secret_access_key=secret_key,
-                )
+            if api_key:
+                client = genai.Client(api_key=api_key)
 
                 prompt = (
                     f"Repository: {repo_path}\n\n"
@@ -197,18 +190,18 @@ class GitAutoSyncObserver(Observer):
                     "Max 72 chars. Return ONLY the message."
                 )
 
-                response = client.converse(
-                    modelId="us.anthropic.claude-haiku-4-5-20251001",
-                    system=[{"text": BEDROCK_SYSTEM}],
-                    messages=[{"role": "user", "content": [{"text": prompt}]}],
-                    inferenceConfig={"temperature": 0.3, "maxTokens": 100},
+                config = types.GenerateContentConfig(
+                    temperature=0.3,
+                    max_output_tokens=100,
+                    system_instruction=BEDROCK_SYSTEM,
+                )
+                response = client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=prompt,
+                    config=config,
                 )
 
-                output = response.get("output", {})
-                message = output.get("message", {})
-                content_blocks = message.get("content", [])
-                texts = [b["text"] for b in content_blocks if "text" in b]
-                msg = " ".join(texts).strip().strip('"').strip("'")
+                msg = (response.text or "").strip().strip('"').strip("'")
 
                 # Validate — should be a single line, not too long
                 if msg and "\n" not in msg and len(msg) < 120:
@@ -218,7 +211,7 @@ class GitAutoSyncObserver(Observer):
                     return msg.split("\n")[0][:72]
 
         except Exception as e:
-            log.warning("Bedrock commit message generation failed: %s", e)
+            log.warning("Gemini commit message generation failed: %s", e)
 
         # Fallback: generate from change summary
         return self._fallback_commit_message(repo_path, diff_summary)

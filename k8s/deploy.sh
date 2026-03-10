@@ -42,10 +42,10 @@ scp "$CLAUDE_BIN" "$FOX_N1:$BUILD_DIR/claude-bin/claude"
 
 # Utility scripts — place where container expects them (HOME=/app)
 ssh "$FOX_N1" "mkdir -p $BUILD_DIR/.config/puretensor"
-scp ~/.config/puretensor/{gmail,gcalendar,gdrive,privateemail}.py \
+scp ~/.config/puretensor/{gmail,gcalendar,gdrive,imap}.py \
   "$FOX_N1:$BUILD_DIR/.config/puretensor/"
 # Also copy credentials config if it exists
-scp ~/.config/puretensor/privateemail.conf "$FOX_N1:$BUILD_DIR/.config/puretensor/" 2>/dev/null || true
+scp ~/.config/puretensor/imap.conf "$FOX_N1:$BUILD_DIR/.config/puretensor/" 2>/dev/null || true
 scp ~/.config/puretensor/credentials.json "$FOX_N1:$BUILD_DIR/.config/puretensor/" 2>/dev/null || true
 
 echo "  Build context staged."

@@ -24,6 +24,7 @@ def get_backend():
         "claude_code": ("backends.claude_code", "ClaudeCodeBackend"),
         "anthropic_api": ("backends.anthropic_api", "AnthropicAPIBackend"),
         "bedrock_api": ("backends.bedrock_api", "BedrockAPIBackend"),
+        "gemini_api": ("backends.gemini_api", "GeminiAPIBackend"),
         "codex_cli": ("backends.codex_cli", "CodexCLIBackend"),
         "gemini_cli": ("backends.gemini_cli", "GeminiCLIBackend"),
         "hybrid": ("backends.hybrid", "HybridBackend"),

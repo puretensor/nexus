@@ -213,8 +213,8 @@ async def cmd_backend(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton(
-                label("Bedrock Sonnet", current == "bedrock_api" and current_model == "sonnet"),
-                callback_data="backend:bedrock_api:sonnet",
+                label("Gemini Flash", current == "gemini_api" and current_model == "sonnet"),
+                callback_data="backend:gemini_api:sonnet",
             ),
             InlineKeyboardButton(
                 label("Codex", current == "codex_cli"),
@@ -1238,6 +1238,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 
+async def _apply_accent_correction(text: str) -> str:
+    """Apply accent corrections via the dictation pipeline (dict + n-gram only)."""
+    try:
+        import sys
+        if "/opt/dictation" not in sys.path:
+            sys.path.insert(0, "/opt/dictation")
+        from server.pipeline import CorrectionPipeline
+
+        pipeline = CorrectionPipeline(use_llm=False)
+        result = pipeline.process(text, use_llm=False)
+        corrected = result["corrected"]
+        if result["changes"]:
+            changes_str = ", ".join(
+                f'"{c["original"]}"→"{c["corrected"]}"'
+                for c in result["changes"][:5]
+            )
+            log.info("Accent corrections applied: %s", changes_str)
+        return corrected
+    except Exception as e:
+        log.warning("Accent correction unavailable: %s", e)
+        return text
+
+
 async def transcribe_voice(voice_bytes: bytes) -> str:
     """Send OGG audio to Whisper and return transcription text.
 
@@ -1318,6 +1341,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not transcript:
                 await update.message.reply_text("(Could not transcribe voice message — empty result)")
                 return
+
+            # Apply accent corrections (dictionary + n-gram, sub-50ms)
+            transcript = await _apply_accent_correction(transcript)
 
             log.info("Transcription: %s", transcript[:100])
             await update.message.reply_text(f"[Transcribed]: {transcript}")

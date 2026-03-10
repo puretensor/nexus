@@ -15,7 +15,7 @@ COMPRESS_TRIGGER_TOKENS = int(os.environ.get("COMPRESS_TRIGGER_TOKENS", "100000"
 PRESERVE_RECENT_MESSAGES = int(os.environ.get("PRESERVE_RECENT_MESSAGES", "40"))
 TOOL_RESULT_FULL_WINDOW = 6  # Keep last N tool results verbatim
 TOOL_RESULT_SUMMARY_CHARS = 200  # Truncate older tool results to this
-SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "us.anthropic.claude-haiku-4-5-20251001")
+SUMMARY_MODEL = os.environ.get("SUMMARY_MODEL", "gemini-2.0-flash")
 
 
 def estimate_tokens(messages: list[dict]) -> int:
@@ -108,16 +108,24 @@ def _build_summary_prompt(old_messages: list[dict]) -> str:
 
 
 def _call_summarizer_sync(prompt: str) -> str:
-    """Call Haiku to summarize. Synchronous (runs in thread pool)."""
-    import boto3
-    client = boto3.client("bedrock-runtime", region_name=os.environ.get("AWS_REGION", "us-east-1"))
-    response = client.converse(
-        modelId=SUMMARY_MODEL,
-        messages=[{"role": "user", "content": [{"text": prompt}]}],
-        inferenceConfig={"maxTokens": 2000},
+    """Call Gemini Flash to summarize. Synchronous (runs in thread pool)."""
+    from google import genai
+    from google.genai import types
+
+    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        raise ValueError("Gemini: GOOGLE_API_KEY not set")
+
+    client = genai.Client(api_key=api_key)
+    config = types.GenerateContentConfig(
+        max_output_tokens=2000,
     )
-    output = response.get("output", {}).get("message", {}).get("content", [])
-    return "\n".join(b["text"] for b in output if "text" in b).strip()
+    response = client.models.generate_content(
+        model=SUMMARY_MODEL,
+        contents=prompt,
+        config=config,
+    )
+    return (response.text or "").strip()
 
 
 def compress_history(messages: list[dict]) -> list[dict]:

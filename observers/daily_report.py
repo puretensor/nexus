@@ -541,46 +541,31 @@ Rules:
         "no explanation text."
     )
 
-    def _call_bedrock(self, prompt: str, timeout: int = 180) -> str:
-        """Call AWS Bedrock Claude Sonnet 4.6 for synthesis.
+    def _call_gemini(self, prompt: str, timeout: int = 180) -> str:
+        """Call Gemini 2.5 Flash for synthesis.
 
-        Uses boto3 converse API. Returns the response text.
-        Raises on failure (missing creds, API errors, etc.).
+        Uses google-genai SDK. Returns the response text.
+        Raises on failure (missing key, API errors, etc.).
         """
-        import boto3
+        from google import genai
+        from google.genai import types
 
-        access_key = os.environ.get("AWS_ACCESS_KEY_ID", "")
-        secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY", "")
-        region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+        api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
+            raise ValueError("Gemini: GOOGLE_API_KEY not set")
 
-        if not access_key or not secret_key:
-            raise ValueError("Bedrock: AWS credentials not set")
-
-        client = boto3.client(
-            "bedrock-runtime",
-            region_name=region,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
+        client = genai.Client(api_key=api_key)
+        config = types.GenerateContentConfig(
+            temperature=0.3,
+            max_output_tokens=8192,
+            system_instruction=self.SYSTEM_PROMPT,
         )
-
-        response = client.converse(
-            modelId="us.anthropic.claude-sonnet-4-6",
-            system=[{"text": self.SYSTEM_PROMPT}],
-            messages=[
-                {"role": "user", "content": [{"text": prompt}]},
-            ],
-            inferenceConfig={
-                "temperature": 0.3,
-                "maxTokens": 8192,
-            },
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=config,
         )
-
-        # Extract text from converse response
-        output = response.get("output", {})
-        message = output.get("message", {})
-        content_blocks = message.get("content", [])
-        texts = [b["text"] for b in content_blocks if "text" in b]
-        return "\n".join(texts)
+        return response.text or ""
 
     def _call_openai_compat(self, prompt: str, provider: dict, timeout: int = 180) -> str:
         """Call an OpenAI-compatible API endpoint for synthesis.
@@ -630,7 +615,7 @@ Rules:
             try:
                 log.info("Bedrock (Claude Sonnet 4.6) synthesis attempt %d/%d",
                          attempt, self.MAX_RETRIES)
-                result = self._call_bedrock(prompt)
+                result = self._call_gemini(prompt)
                 if result and len(result.strip()) > 100:
                     parsed = self._parse_json_response(result)
                     if parsed:
