@@ -50,6 +50,7 @@ def _build_observer_registry():
         ("observers.weekly_report", "WeeklyReportObserver"),
         ("observers.git_security_audit", "GitSecurityAuditObserver"),
         ("observers.git_auto_sync", "GitAutoSyncObserver"),
+        ("observers.github_activity", "GitHubActivityObserver"),
         ("observers.pipeline_watchdog", "PipelineWatchdog"),
     ]
 
