@@ -1,0 +1,136 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wa-bridge-1
+  namespace: nexus
+  labels:
+    app: wa-bridge
+    instance: wa-1
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Only one WhatsApp connection per phone number
+  selector:
+    matchLabels:
+      app: wa-bridge
+      instance: wa-1
+  template:
+    metadata:
+      labels:
+        app: wa-bridge
+        instance: wa-1
+    spec:
+      containers:
+        - name: wa-bridge
+          image: wa-bridge:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3100
+          env:
+            - name: WA_INSTANCE
+              value: "wa-1"
+            - name: BOT_PHONE
+              valueFrom:
+                secretKeyRef:
+                  name: wa-bridge-secrets
+                  key: bot-phone-1
+            - name: HTTP_PORT
+              value: "3100"
+            - name: NEXUS_WEBHOOK
+              value: "http://nexus.nexus.svc.cluster.local:9876/wa/incoming"
+            - name: AUTH_DIR
+              value: "/data/auth"
+            - name: LOG_LEVEL
+              value: "info"
+          volumeMounts:
+            - name: wa-auth
+              mountPath: /data/auth
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: 3100
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: 3100
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+      volumes:
+        - name: wa-auth
+          persistentVolumeClaim:
+            claimName: wa-bridge-1-auth
+
+---
+# Second instance (phone #2) — uncomment when ready
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: wa-bridge-2
+#   namespace: nexus
+#   labels:
+#     app: wa-bridge
+#     instance: wa-2
+# spec:
+#   replicas: 1
+#   strategy:
+#     type: Recreate
+#   selector:
+#     matchLabels:
+#       app: wa-bridge
+#       instance: wa-2
+#   template:
+#     metadata:
+#       labels:
+#         app: wa-bridge
+#         instance: wa-2
+#     spec:
+#       containers:
+#         - name: wa-bridge
+#           image: wa-bridge:latest
+#           imagePullPolicy: IfNotPresent
+#           ports:
+#             - containerPort: 3101
+#           env:
+#             - name: WA_INSTANCE
+#               value: "wa-2"
+#             - name: BOT_PHONE
+#               valueFrom:
+#                 secretKeyRef:
+#                   name: wa-bridge-secrets
+#                   key: bot-phone-2
+#             - name: HTTP_PORT
+#               value: "3101"
+#             - name: NEXUS_WEBHOOK
+#               value: "http://nexus.nexus.svc.cluster.local:9876/wa/incoming"
+#             - name: AUTH_DIR
+#               value: "/data/auth"
+#           volumeMounts:
+#             - name: wa-auth
+#               mountPath: /data/auth
+#           livenessProbe:
+#             httpGet:
+#               path: /status
+#               port: 3101
+#             initialDelaySeconds: 30
+#             periodSeconds: 30
+#           resources:
+#             requests:
+#               memory: "128Mi"
+#               cpu: "50m"
+#             limits:
+#               memory: "256Mi"
+#               cpu: "200m"
+#       volumes:
+#         - name: wa-auth
+#           persistentVolumeClaim:
+#             claimName: wa-bridge-2-auth

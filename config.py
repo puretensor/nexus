@@ -53,6 +53,11 @@ VLLM_TOOL_TIMEOUT = int(os.environ.get("VLLM_TOOL_TIMEOUT", "60"))
 VLLM_TOTAL_TIMEOUT = int(os.environ.get("VLLM_TOTAL_TIMEOUT", "300"))
 VLLM_MAX_TOKENS = int(os.environ.get("VLLM_MAX_TOKENS", "32768"))
 
+# Vision — NVIDIA Nemotron Nano VL (local, GPU 1, image preprocessing)
+VISION_URL = os.environ.get("VISION_URL", "http://127.0.0.1:5001/v1")
+VISION_MODEL = os.environ.get("VISION_MODEL", "nvidia/nemotron-nano-vl")
+VISION_ENABLED = os.environ.get("VISION_ENABLED", "false").lower() == "true"
+
 # Ollama — local models (default)
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:235b")
@@ -81,6 +86,13 @@ ALERT_BOT_TOKEN = os.environ.get("ALERT_BOT_TOKEN", BOT_TOKEN)  # fallback to ma
 # Discord
 DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_AUTHORIZED_USER_ID = int(os.environ.get("DISCORD_AUTHORIZED_USER_ID", "0"))
+
+# WhatsApp
+WA_ENABLED = os.environ.get("WA_ENABLED", "false").lower() in ("true", "1", "yes")
+# JSON list of bridge instances: [{"name": "wa-1", "url": "http://...:3100"}, ...]
+WA_INSTANCES = os.environ.get("WA_INSTANCES", '[{"name": "wa-1", "url": "http://127.0.0.1:3100"}]')
+WA_ROUTING_CONFIG = os.environ.get("WA_ROUTING_CONFIG", "")
+WA_CHAT_ID_OFFSET = 800_000_000_000
 
 # Agent identity — configurable name and personality
 AGENT_NAME = os.environ.get("AGENT_NAME", "HAL")

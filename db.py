@@ -221,6 +221,39 @@ def init_db():
         )""")
         log.info("Created tasks table")
 
+    # WhatsApp messages log (audit trail)
+    wa_cols = [row[1] for row in con.execute("PRAGMA table_info(wa_messages)").fetchall()]
+    if not wa_cols:
+        con.execute("""CREATE TABLE wa_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            instance TEXT NOT NULL,
+            jid TEXT NOT NULL,
+            sender_jid TEXT,
+            push_name TEXT,
+            message_type TEXT DEFAULT 'text',
+            body TEXT,
+            is_group INTEGER DEFAULT 0,
+            message_id TEXT,
+            received_at TEXT DEFAULT (datetime('now'))
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_wa_jid ON wa_messages(jid)")
+        log.info("Created wa_messages table")
+
+    # WhatsApp drafts pending approval (SUGGEST mode)
+    wa_draft_cols = [row[1] for row in con.execute("PRAGMA table_info(wa_drafts)").fetchall()]
+    if not wa_draft_cols:
+        con.execute("""CREATE TABLE wa_drafts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_msg_id INTEGER,
+            instance TEXT NOT NULL,
+            jid TEXT NOT NULL,
+            draft_body TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now')),
+            resolved_at TEXT
+        )""")
+        log.info("Created wa_drafts table")
+
     con.commit()
     con.close()
 
@@ -1225,3 +1258,65 @@ def db_list_tasks(status_filter: str = "active") -> list[dict]:
         rows = con.execute("SELECT id, title, status, priority, notes, updated_at FROM tasks WHERE status = ? ORDER BY id", (status_filter,)).fetchall()
     con.close()
     return [{"id": r[0], "title": r[1], "status": r[2], "priority": r[3], "notes": r[4], "updated_at": r[5]} for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp helpers
+# ---------------------------------------------------------------------------
+
+def log_wa_message(*, instance: str, jid: str, sender_jid: str,
+                   push_name: str, message_type: str, body: str,
+                   is_group: bool, message_id: str):
+    """Log an incoming WhatsApp message to the audit table."""
+    con = _connect()
+    con.execute(
+        """INSERT INTO wa_messages
+           (instance, jid, sender_jid, push_name, message_type, body, is_group, message_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (instance, jid, sender_jid, push_name, message_type, body,
+         1 if is_group else 0, message_id),
+    )
+    con.commit()
+    con.close()
+
+
+def store_wa_draft(*, telegram_msg_id: int, instance: str, jid: str,
+                   draft_body: str):
+    """Store a pending WhatsApp draft for SUGGEST mode approval."""
+    con = _connect()
+    con.execute(
+        """INSERT INTO wa_drafts (telegram_msg_id, instance, jid, draft_body)
+           VALUES (?, ?, ?, ?)""",
+        (telegram_msg_id, instance, jid, draft_body),
+    )
+    con.commit()
+    con.close()
+
+
+def get_wa_draft(telegram_msg_id: int) -> dict | None:
+    """Get a pending WA draft by the Telegram message ID it was sent in."""
+    con = _connect()
+    row = con.execute(
+        """SELECT id, instance, jid, draft_body, status
+           FROM wa_drafts WHERE telegram_msg_id = ? AND status = 'pending'
+           ORDER BY id DESC LIMIT 1""",
+        (telegram_msg_id,),
+    ).fetchone()
+    con.close()
+    if not row:
+        return None
+    return {
+        "id": row[0], "instance": row[1], "jid": row[2],
+        "draft_body": row[3], "status": row[4],
+    }
+
+
+def resolve_wa_draft(draft_id: int, status: str):
+    """Mark a WA draft as approved or rejected."""
+    con = _connect()
+    con.execute(
+        "UPDATE wa_drafts SET status = ?, resolved_at = datetime('now') WHERE id = ?",
+        (status, draft_id),
+    )
+    con.commit()
+    con.close()

@@ -263,7 +263,58 @@ class WebhookHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK")
 
     def do_POST(self):
-        """Handle Gitea webhook POST."""
+        """Handle incoming POSTs — route by path."""
+        path = self.path.split("?")[0].rstrip("/")
+
+        if path == "/wa/incoming":
+            self._handle_wa_incoming()
+            return
+
+        # Default: Gitea webhook handler (original behavior)
+        self._handle_gitea_push()
+
+    def _handle_wa_incoming(self):
+        """Handle WhatsApp bridge webhook POST at /wa/incoming."""
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length == 0:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b"Empty body")
+            return
+
+        body = self.rfile.read(content_length)
+
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(b"Invalid JSON")
+            return
+
+        # Respond immediately
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+        # Route to WhatsApp channel via the global reference
+        try:
+            wa_channel = getattr(self.obs, '_wa_channel', None)
+            if wa_channel:
+                import asyncio
+                loop = getattr(self.obs, '_event_loop', None)
+                if loop and loop.is_running():
+                    wa_channel.enqueue_sync(payload, loop)
+                else:
+                    log.warning("WA: no running event loop for webhook dispatch")
+            else:
+                log.debug("WA: webhook received but no WhatsApp channel registered")
+        except Exception as e:
+            log.error("WA webhook dispatch error: %s", e, exc_info=True)
+
+    def _handle_gitea_push(self):
+        """Handle Gitea webhook POST (original handler)."""
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length == 0:
             self.send_response(400)

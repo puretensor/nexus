@@ -1,0 +1,15 @@
+{
+  "name": "wa-bridge",
+  "version": "1.0.0",
+  "description": "WhatsApp Web bridge for Nexus — baileys sidecar with HTTP API",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "github:WhiskeySockets/Baileys",
+    "express": "^4.21.0",
+    "pino": "^9.5.0"
+  }
+}

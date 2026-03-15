@@ -76,7 +76,7 @@ async def main():
     # Import here to ensure config/db are ready
     from channels.telegram import TelegramChannel
     from channels.email_in import EmailInputChannel
-    from config import DISCORD_BOT_TOKEN
+    from config import DISCORD_BOT_TOKEN, WA_ENABLED
 
     telegram = TelegramChannel()
     registry = _build_observer_registry()
@@ -87,6 +87,23 @@ async def main():
     if DISCORD_BOT_TOKEN:
         from channels.discord import DiscordChannel
         discord_channel = DiscordChannel()
+
+    # WhatsApp — only start if enabled
+    wa_channel = None
+    if WA_ENABLED:
+        import json as _json
+        from config import WA_INSTANCES, WA_ROUTING_CONFIG
+        from channels.whatsapp import WhatsAppChannel
+
+        try:
+            instances = _json.loads(WA_INSTANCES)
+        except Exception as e:
+            log.warning("Failed to parse WA_INSTANCES: %s", e)
+            instances = []
+
+        wa_channel = WhatsAppChannel(
+            instances=instances,
+        )
 
     # Graceful shutdown handler
     shutdown_event = asyncio.Event()
@@ -116,6 +133,23 @@ async def main():
         if discord_channel:
             await discord_channel.start()
 
+        # Start WhatsApp channel (if enabled)
+        if wa_channel:
+            wa_channel.set_telegram_bot(telegram.app.bot)
+            await wa_channel.start()
+
+            # Set global ref for Telegram callback handler (wa:approve/reject)
+            from channels.telegram import callbacks as _tg_cb
+            _tg_cb._wa_channel = wa_channel
+
+            # Wire up the webhook handler: set wa_channel + event loop
+            # on the GitPushObserver so WebhookHandler can dispatch
+            for obs_instance in registry._observers:
+                if hasattr(obs_instance, 'LISTEN_PORT'):  # GitPushObserver
+                    obs_instance._wa_channel = wa_channel
+                    obs_instance._event_loop = asyncio.get_event_loop()
+                    break
+
         # Start observer registry loop
         observer_task = asyncio.create_task(registry.run_loop())
 
@@ -139,6 +173,8 @@ async def main():
                 await observer_task
             except asyncio.CancelledError:
                 pass
+        if wa_channel:
+            await wa_channel.stop()
         if discord_channel:
             await discord_channel.stop()
         await email_in.stop()

@@ -18,6 +18,9 @@ from dispatcher.apis.infra import restart_service, trigger_deploy
 
 log = logging.getLogger("nexus")
 
+# Global WhatsApp channel reference — set by nexus.py at startup
+_wa_channel = None
+
 
 @authorized
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -244,6 +247,53 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await editor.finalize()
                 elif data_result.get("result"):
                     await query.message.reply_text(data_result["result"][:4000])
+            return
+
+        return
+
+    if data.startswith("wa:"):
+        parts = data.split(":", 3)
+        action = parts[1] if len(parts) > 1 else ""
+
+        if action in ("approve", "reject"):
+            from db import get_wa_draft, resolve_wa_draft
+
+            # Find the draft by the Telegram message ID
+            tg_msg_id = query.message.message_id
+            draft = get_wa_draft(tg_msg_id)
+
+            if not draft:
+                await query.message.edit_text(
+                    query.message.text + "\n\n(Draft not found or already resolved)"
+                )
+                return
+
+            if action == "reject":
+                resolve_wa_draft(draft["id"], "rejected")
+                await query.message.edit_text(
+                    query.message.text + "\n\n\u274c Rejected"
+                )
+                return
+
+            # Approve — send via WhatsApp bridge
+            resolve_wa_draft(draft["id"], "approved")
+
+            if _wa_channel:
+                success = await _wa_channel.send_approved_draft(
+                    draft["instance"], draft["jid"], draft["draft_body"],
+                )
+                if success:
+                    await query.message.edit_text(
+                        query.message.text + "\n\n\u2705 Sent"
+                    )
+                else:
+                    await query.message.edit_text(
+                        query.message.text + "\n\n\u274c Send failed"
+                    )
+            else:
+                await query.message.edit_text(
+                    query.message.text + "\n\n\u274c WhatsApp channel not available"
+                )
             return
 
         return
